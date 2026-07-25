@@ -21,8 +21,8 @@ public struct OutlineParser: Sendable {
         var duplicateCounts: [String: Int] = [:]
 
         for (offset, rawLine) in document.contents.split(
-            separator: "\n",
-            omittingEmptySubsequences: false
+            omittingEmptySubsequences: false,
+            whereSeparator: \.isNewline
         ).enumerated() {
             guard let heading = heading(in: String(rawLine), format: document.format) else {
                 continue

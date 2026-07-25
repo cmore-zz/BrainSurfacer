@@ -51,3 +51,19 @@ func markdownHeadingHierarchyIsPreserved() {
     #expect(entities[2].source.headingPath == ["Architecture", "Filesystem"])
     #expect(entities[3].relationships.first?.target == entities[1].id)
 }
+
+@Test
+func classicMacLineEndingsDoNotTurnTheDocumentIntoOneHeading() {
+    let source = URL(fileURLWithPath: "/tmp/Guide.md")
+    let document = SourceDocument(
+        fileURL: source,
+        format: .markdown,
+        contents: "# Guide\r\rFirst paragraph.\r\r## Details\rMore text."
+    )
+
+    let entities = OutlineParser().parse(document)
+
+    #expect(entities.map(\.title) == ["Guide", "Guide", "Details"])
+    #expect(entities[1].source.line == 1)
+    #expect(entities[2].source.line == 5)
+}

@@ -34,6 +34,10 @@ let package = Package(
         .testTarget(
             name: "BrainSurfacerFilesystemTests",
             dependencies: ["BrainSurfacerFilesystem", "BrainSurfacerModel"]
+        ),
+        .testTarget(
+            name: "BrainSurfacerAppleTests",
+            dependencies: ["BrainSurfacerApple", "BrainSurfacerModel"]
         )
     ]
 )
