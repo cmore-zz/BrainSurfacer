@@ -1,0 +1,39 @@
+// swift-tools-version: 6.4
+
+import PackageDescription
+
+let package = Package(
+    name: "BrainSurfacer",
+    platforms: [
+        .macOS(.v27)
+    ],
+    products: [
+        .library(name: "BrainSurfacerModel", targets: ["BrainSurfacerModel"]),
+        .library(name: "BrainSurfacerCore", targets: ["BrainSurfacerCore"]),
+        .library(name: "BrainSurfacerFilesystem", targets: ["BrainSurfacerFilesystem"]),
+        .library(name: "BrainSurfacerApple", targets: ["BrainSurfacerApple"])
+    ],
+    targets: [
+        .target(name: "BrainSurfacerModel"),
+        .target(
+            name: "BrainSurfacerCore",
+            dependencies: ["BrainSurfacerModel"]
+        ),
+        .target(
+            name: "BrainSurfacerFilesystem",
+            dependencies: ["BrainSurfacerModel"]
+        ),
+        .target(
+            name: "BrainSurfacerApple",
+            dependencies: ["BrainSurfacerCore", "BrainSurfacerModel"]
+        ),
+        .testTarget(
+            name: "BrainSurfacerCoreTests",
+            dependencies: ["BrainSurfacerCore", "BrainSurfacerModel"]
+        ),
+        .testTarget(
+            name: "BrainSurfacerFilesystemTests",
+            dependencies: ["BrainSurfacerFilesystem", "BrainSurfacerModel"]
+        )
+    ]
+)

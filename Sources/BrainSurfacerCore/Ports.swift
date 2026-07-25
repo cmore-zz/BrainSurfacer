@@ -1,0 +1,154 @@
+import BrainSurfacerModel
+import Foundation
+
+public struct EntityIndexChange: Sendable, Equatable {
+    public var upserts: [KnowledgeEntity]
+    public var removals: Set<EntityID>
+
+    public init(upserts: [KnowledgeEntity], removals: Set<EntityID>) {
+        self.upserts = upserts
+        self.removals = removals
+    }
+}
+
+public protocol PermanentEntityIndex: Sendable {
+    func apply(_ change: EntityIndexChange) async throws
+}
+
+public protocol EntityCatalog: Sendable {
+    func replaceEntities(
+        from source: URL,
+        with entities: [KnowledgeEntity]
+    ) async throws -> EntityIndexChange
+
+    func entities(identifiedBy identifiers: [EntityID]) async throws -> [KnowledgeEntity]
+    func resolve(_ reference: EntityReference) async throws -> KnowledgeEntity?
+}
+
+public enum EntityReference: Codable, Hashable, Sendable {
+    case entityID(EntityID)
+    case file(URL)
+    case sourceAnchor(SourceAnchor)
+    case providerLocal(providerID: String, value: String)
+}
+
+public enum ContextRelevance: String, Codable, CaseIterable, Hashable, Sendable {
+    case selected
+    case visible
+    case currentTask
+    case activeProject
+    case open
+    case neighboring
+    case recent
+}
+
+public struct ContextContribution: Codable, Hashable, Sendable {
+    public var reference: EntityReference
+    public var relevance: ContextRelevance
+    public var expiresAt: Date
+
+    public init(
+        reference: EntityReference,
+        relevance: ContextRelevance,
+        expiresAt: Date
+    ) {
+        self.reference = reference
+        self.relevance = relevance
+        self.expiresAt = expiresAt
+    }
+}
+
+public struct ContextSnapshot: Codable, Equatable, Sendable {
+    public var providerID: String
+    public var observedAt: Date
+    public var contributions: [ContextContribution]
+
+    public init(
+        providerID: String,
+        observedAt: Date,
+        contributions: [ContextContribution]
+    ) {
+        self.providerID = providerID
+        self.observedAt = observedAt
+        self.contributions = contributions
+    }
+}
+
+public protocol ContextProvider: Sendable {
+    var id: String { get }
+    func contextSnapshot() async throws -> ContextSnapshot
+}
+
+public struct ContextSignal: Equatable, Sendable {
+    public var providerID: String
+    public var relevance: ContextRelevance
+    public var observedAt: Date
+    public var expiresAt: Date
+
+    public init(
+        providerID: String,
+        relevance: ContextRelevance,
+        observedAt: Date,
+        expiresAt: Date
+    ) {
+        self.providerID = providerID
+        self.relevance = relevance
+        self.observedAt = observedAt
+        self.expiresAt = expiresAt
+    }
+}
+
+public struct ResolvedContextItem: Equatable, Sendable {
+    public var entity: KnowledgeEntity
+    public var signals: [ContextSignal]
+    public var score: Int
+
+    public init(entity: KnowledgeEntity, signals: [ContextSignal], score: Int) {
+        self.entity = entity
+        self.signals = signals
+        self.score = score
+    }
+}
+
+public struct UnresolvedContextContribution: Equatable, Sendable {
+    public var providerID: String
+    public var observedAt: Date
+    public var contribution: ContextContribution
+
+    public init(
+        providerID: String,
+        observedAt: Date,
+        contribution: ContextContribution
+    ) {
+        self.providerID = providerID
+        self.observedAt = observedAt
+        self.contribution = contribution
+    }
+}
+
+public struct CurrentContext: Equatable, Sendable {
+    public var resolved: [ResolvedContextItem]
+    public var unresolved: [UnresolvedContextContribution]
+
+    public init(
+        resolved: [ResolvedContextItem],
+        unresolved: [UnresolvedContextContribution]
+    ) {
+        self.resolved = resolved
+        self.unresolved = unresolved
+    }
+}
+
+public protocol ContextRankingPolicy: Sendable {
+    func score(for signals: [ContextSignal]) -> Int
+}
+
+public protocol ContextPublisher: Sendable {
+    func publish(_ context: CurrentContext) async throws
+}
+
+public protocol DocumentOpener: Sendable {
+    var id: String { get }
+    func canOpen(_ entity: KnowledgeEntity) async -> Bool
+    func open(_ entity: KnowledgeEntity) async throws
+}
