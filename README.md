@@ -28,14 +28,16 @@ This repository contains an early, architecture-first prototype:
   parser.
 - `BrainSurfacerApple`: the macOS 27 App Intents/Core Spotlight projection.
 - `BrainSurfacerApp`: a native SwiftUI app for enrolling security-scoped source
-  directories, monitoring indexing, and manually reindexing.
+  directories, monitoring indexing, manually reindexing, and searching the
+  resulting Spotlight content.
 
 The app currently persists opted-in directories, recursively scans Markdown and
 Org files, parses notes/headings/tasks into entities, and submits them through
-the App Intents/Core Spotlight adapter. The parser and Apple adapter remain
-deliberate probes rather than final implementations: filesystem change
-observation, durable incremental state, richer parsing, and editor connectors
-are still ahead.
+the App Intents/Core Spotlight adapter. The Index view queries those donated
+entities through Spotlight’s ranked user-query API. The parser and Apple
+adapter remain deliberate probes rather than final implementations: filesystem
+change observation, durable incremental state, richer parsing, and editor
+connectors are still ahead.
 
 ## Build
 

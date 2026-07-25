@@ -26,18 +26,25 @@ final class SourceLibraryModel {
     private(set) var sources: [SourceDirectory] = []
     private(set) var isLoading = true
     private(set) var indexStatusBySource: [String: SourceIndexStatus] = [:]
+    private(set) var searchResults: [EntitySearchResult] = []
+    private(set) var isSearching = false
+    private(set) var searchErrorMessage: String?
     var errorMessage: String?
 
     private let store: SourceDirectoryStore
     private let scanner: SourceDirectoryScanner
     private let coordinator: IndexingCoordinator
+    private let entitySearch: any EntitySearch
+    private var searchGeneration = 0
 
     init(
         store: SourceDirectoryStore = SourceDirectoryStore(),
-        scanner: SourceDirectoryScanner = SourceDirectoryScanner()
+        scanner: SourceDirectoryScanner = SourceDirectoryScanner(),
+        entitySearch: any EntitySearch = SpotlightEntitySearch()
     ) {
         self.store = store
         self.scanner = scanner
+        self.entitySearch = entitySearch
         let catalog = InMemoryEntityCatalog()
         coordinator = IndexingCoordinator(
             catalog: catalog,
@@ -122,6 +129,50 @@ final class SourceLibraryModel {
 
     func clearError() {
         errorMessage = nil
+    }
+
+    func search(_ text: String) async {
+        searchGeneration += 1
+        let generation = searchGeneration
+        let searchText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !searchText.isEmpty else {
+            searchResults = []
+            searchErrorMessage = nil
+            isSearching = false
+            return
+        }
+
+        isSearching = true
+        searchErrorMessage = nil
+
+        do {
+            let results = try await entitySearch.search(searchText, limit: 20)
+            guard generation == searchGeneration else {
+                return
+            }
+            searchResults = results
+            isSearching = false
+        } catch is CancellationError {
+            guard generation == searchGeneration else {
+                return
+            }
+            isSearching = false
+        } catch {
+            guard generation == searchGeneration else {
+                return
+            }
+            searchResults = []
+            searchErrorMessage = error.localizedDescription
+            isSearching = false
+        }
+    }
+
+    func clearSearch() {
+        searchGeneration += 1
+        searchResults = []
+        searchErrorMessage = nil
+        isSearching = false
     }
 
     var totalFileCount: Int {

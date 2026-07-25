@@ -74,8 +74,9 @@ Core coordinates source replacement as a single logical mutation:
 3. upsert new/changed entities in the permanent index;
 4. remove stale entity identifiers.
 
-Ports define the permanent index, context providers, contextual publishing, and
-document opening. No port mentions an Apple framework or editor.
+Ports define the permanent index, entity search, context providers, contextual
+publishing, and document opening. No port mentions an Apple framework or
+editor.
 
 Live context arrives as replaceable `ContextSnapshot` values. Each contribution
 references a canonical entity by entity ID, file, source anchor, or
@@ -89,6 +90,11 @@ signals while parsing catches up, and removes expired or disconnected state.
 The initial Apple adapter projects a `KnowledgeEntity` into an `IndexedEntity`
 and calls `CSSearchableIndex.indexAppEntities`. It can be replaced by multiple
 schema-specific entity projections later.
+
+In-app search goes back through the `EntitySearch` port. The Apple adapter uses
+`CSUserQuery` for ranked lexical and semantic results and filters on a
+BrainSurfacer App Entity domain, so only opted-in knowledge donations are
+returned. Core and the UI do not construct Spotlight predicates.
 
 The macOS 27 SDK adds `IndexedEntityQuery` for Spotlight-requested reindexing.
 That should call back through the core catalog/rebuild path; it should not become

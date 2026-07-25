@@ -38,3 +38,40 @@ func spotlightErrorDescriptionExplainsInvalidMetadata() {
     #expect(error.errorDescription?.contains("metadata was invalid") == true)
     #expect(error.errorDescription?.contains("-1001") == true)
 }
+
+@Test
+func spotlightProjectionScopesItemsToKnowledgeDomain() {
+    let entity = KnowledgeEntity(
+        id: EntityID(rawValue: "note"),
+        kind: .note,
+        title: "Note",
+        body: "Searchable text",
+        source: SourceAnchor(fileURL: URL(fileURLWithPath: "/tmp/Note.md"))
+    )
+
+    let projection = SpotlightKnowledgeEntity(entity)
+    let searchableItem = CSSearchableItem(appEntity: projection)
+
+    #expect(projection.attributeSet.textContent == "Searchable text")
+    #expect(searchableItem.domainIdentifier == SpotlightKnowledgeEntity.searchDomainIdentifier)
+}
+
+@Test
+func spotlightSearchResultPreservesDisplayMetadata() {
+    let attributes = CSSearchableItemAttributeSet()
+    attributes.title = "Search result"
+    attributes.contentDescription = "A short excerpt"
+    attributes.contentURL = URL(fileURLWithPath: "/tmp/Result.md")
+    let item = CSSearchableItem(
+        uniqueIdentifier: "result-id",
+        domainIdentifier: SpotlightKnowledgeEntity.searchDomainIdentifier,
+        attributeSet: attributes
+    )
+
+    let result = SpotlightEntitySearch.result(from: item)
+
+    #expect(result.id == "result-id")
+    #expect(result.title == "Search result")
+    #expect(result.summary == "A short excerpt")
+    #expect(result.sourceURL == URL(fileURLWithPath: "/tmp/Result.md"))
+}

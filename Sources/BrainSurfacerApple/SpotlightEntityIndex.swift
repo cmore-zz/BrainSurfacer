@@ -7,6 +7,8 @@ import Foundation
 import UniformTypeIdentifiers
 
 public struct SpotlightKnowledgeEntity: IndexedEntity {
+    public static let searchDomainIdentifier = "SpotlightKnowledgeEntity"
+
     private static let maximumCanonicalIdentifierLength = 2_048
 
     public static var typeDisplayRepresentation: TypeDisplayRepresentation {
@@ -32,6 +34,7 @@ public struct SpotlightKnowledgeEntity: IndexedEntity {
         attributes.title = title
         attributes.displayName = title
         attributes.contentDescription = text
+        attributes.textContent = text
         attributes.keywords = tags
         attributes.contentURL = sourceURL
         attributes.contentModificationDate = modifiedAt

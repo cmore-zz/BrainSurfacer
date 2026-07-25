@@ -1,3 +1,4 @@
+import BrainSurfacerCore
 import BrainSurfacerFilesystem
 import SwiftUI
 
@@ -149,6 +150,7 @@ private struct SourcesView: View {
 
 private struct IndexView: View {
     let model: SourceLibraryModel
+    @State private var searchText = ""
 
     var body: some View {
         Group {
@@ -191,6 +193,42 @@ private struct IndexView: View {
                             .padding(.vertical, 4)
                         }
                     }
+
+                    Section("Search") {
+                        HStack {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(.secondary)
+                            TextField("Search indexed knowledge", text: $searchText)
+                                .textFieldStyle(.plain)
+                            if model.isSearching {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else if !searchText.isEmpty {
+                                Button {
+                                    searchText = ""
+                                    model.clearSearch()
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Clear search")
+                            }
+                        }
+
+                        if let message = model.searchErrorMessage {
+                            Label(message, systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.red)
+                        } else if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                                  !model.isSearching,
+                                  model.searchResults.isEmpty {
+                            ContentUnavailableView.search(text: searchText)
+                        } else {
+                            ForEach(model.searchResults) { result in
+                                SearchResultRow(result: result)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -206,6 +244,22 @@ private struct IndexView: View {
                 }
                 .disabled(model.sources.isEmpty || model.isIndexing)
             }
+        }
+        .task(id: searchText) {
+            guard !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                model.clearSearch()
+                return
+            }
+
+            do {
+                try await Task.sleep(for: .milliseconds(300))
+            } catch {
+                return
+            }
+            await model.search(searchText)
+        }
+        .onDisappear {
+            model.clearSearch()
         }
     }
 
@@ -228,6 +282,39 @@ private struct IndexView: View {
             Text(message)
                 .foregroundStyle(.red)
         }
+    }
+}
+
+private struct SearchResultRow: View {
+    let result: EntitySearchResult
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "doc.text")
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(result.title)
+                    .font(.headline)
+
+                if let sourceURL = result.sourceURL {
+                    Text(sourceURL.path(percentEncoded: false))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                if let summary = result.summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+        }
+        .padding(.vertical, 3)
     }
 }
 
