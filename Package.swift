@@ -29,7 +29,11 @@ let package = Package(
         ),
         .testTarget(
             name: "BrainSurfacerCoreTests",
-            dependencies: ["BrainSurfacerCore", "BrainSurfacerModel"]
+            dependencies: [
+                "BrainSurfacerCore",
+                "BrainSurfacerFilesystem",
+                "BrainSurfacerModel"
+            ]
         ),
         .testTarget(
             name: "BrainSurfacerFilesystemTests",

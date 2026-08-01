@@ -133,14 +133,25 @@ several applications.
 
 ## Identity and storage
 
-Entity identifiers must be deterministic within an opted-in source and stable
-across ordinary content edits. The prototype derives heading identifiers from
-their structural path; a production identity strategy must handle duplicate
-headings, moves, renames, Org IDs, Markdown block IDs, and editor-native IDs.
+Parsers attach identity evidence rather than deciding fallback identity. Org
+`ID` values are globally canonical. Org `CUSTOM_ID`, Markdown `^block-id` and
+`{#attribute-id}` values, editor identifiers, current structural paths, and
+content fingerprints are retained as matching evidence.
 
-A future catalog may persist fingerprints, identifiers, and compact projections
-for incremental rebuilds. It remains a disposable cache—not an alternate source
-of user knowledge.
+The catalog reconciles each parse observation against the previous source
+snapshot. It prefers explicit identifiers, then the current observed path, then
+structural fingerprints scoped to a matched document. Duplicate fingerprints
+are paired by source order only inside that matched document. This preserves
+canonical identifiers through ordinary edits, duplicate headings, heading and
+file renames, and source-root moves without guessing between ambiguous copies.
+Fallback canonical identifiers are deterministic digests of the first observed
+parser identifier; the Apple adapter separately applies its own platform length
+bound, so platform projection identifiers never become canonical identity.
+
+Fingerprints and mappings remain a disposable cache—not an alternate source of
+user knowledge. A cache rebuild can deterministically recover identity at the
+current source location, while explicit source identifiers are required to
+recover the same identity across both a move and loss of the catalog.
 
 ## Privacy and failure behavior
 

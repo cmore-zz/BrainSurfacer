@@ -138,7 +138,18 @@ public actor PersistentEntityCatalog: EntityCatalog {
         with entities: [KnowledgeEntity]
     ) -> EntityIndexChange {
         let source = source.standardizedFileURL
-        let previous = identifiersBySource[source, default: []]
+        let previousSource = EntityIdentityStabilizer.movedSourceCandidate(
+            for: source,
+            incoming: entities,
+            identifiersBySource: identifiersBySource,
+            entitiesByID: entitiesByID
+        ) ?? source
+        let previous = identifiersBySource[previousSource, default: []]
+        let previousEntities = previous.compactMap { entitiesByID[$0] }
+        let entities = EntityIdentityStabilizer.stabilize(
+            entities,
+            against: previousEntities
+        )
         let next = Set(entities.map(\.id))
         let removals = previous.subtracting(next)
 
@@ -147,6 +158,9 @@ public actor PersistentEntityCatalog: EntityCatalog {
         }
         for entity in entities {
             entitiesByID[entity.id] = entity
+        }
+        if previousSource != source {
+            identifiersBySource.removeValue(forKey: previousSource)
         }
         identifiersBySource[source] = next
 

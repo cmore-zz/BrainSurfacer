@@ -17,7 +17,7 @@ invariants.
   reindexing.
 - Preserve a clear schema version and rebuild path for all derived state.
 
-## 2. Stable entity identity
+## 2. Stable entity identity *(implemented)*
 
 - Prefer Org `ID` and `CUSTOM_ID`, Markdown block IDs, and editor-native IDs.
 - Add durable structural matching for content without explicit identifiers.

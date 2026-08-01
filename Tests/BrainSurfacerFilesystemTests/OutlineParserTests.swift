@@ -67,3 +67,56 @@ func classicMacLineEndingsDoNotTurnTheDocumentIntoOneHeading() {
     #expect(entities[1].source.line == 1)
     #expect(entities[2].source.line == 5)
 }
+
+@Test
+func orgIdentifiersArePreferredAndRetainedAsEditorAnchors() {
+    let source = URL(fileURLWithPath: "/tmp/Identity.org")
+    let document = SourceDocument(
+        fileURL: source,
+        format: .org,
+        contents: """
+        * Globally identified
+        :PROPERTIES:
+        :ID: 5E427B36-80D7-4E5F-B71F-94A2A270D559
+        :END:
+        * Locally identified
+        :PROPERTIES:
+        :CUSTOM_ID: release-plan
+        :END:
+        """
+    )
+
+    let entities = OutlineParser().parse(document)
+
+    #expect(entities[1].id.rawValue == "org-id:5e427b36-80d7-4e5f-b71f-94a2a270d559")
+    #expect(entities[1].source.editorIdentifier == "5E427B36-80D7-4E5F-B71F-94A2A270D559")
+    #expect(
+        entities[2].attributes[EntityIdentityMetadata.explicitIdentifier]
+            == "org-custom-id:release-plan"
+    )
+    #expect(entities[2].source.editorIdentifier == "release-plan")
+}
+
+@Test
+func markdownExplicitIdentifiersAreRemovedFromDisplayTitles() {
+    let source = URL(fileURLWithPath: "/tmp/Identity.md")
+    let document = SourceDocument(
+        fileURL: source,
+        format: .markdown,
+        contents: """
+        # Block address ^launch-plan
+        ## Attribute address {#details}
+        """
+    )
+
+    let entities = OutlineParser().parse(document)
+
+    #expect(entities[1].title == "Block address")
+    #expect(entities[1].source.editorIdentifier == "launch-plan")
+    #expect(
+        entities[1].attributes[EntityIdentityMetadata.explicitIdentifier]
+            == "markdown-id:launch-plan"
+    )
+    #expect(entities[2].title == "Attribute address")
+    #expect(entities[2].source.editorIdentifier == "details")
+}
