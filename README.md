@@ -32,8 +32,10 @@ This repository contains an early, architecture-first prototype:
   resulting Spotlight content.
 
 The app currently persists opted-in directories, recursively scans Markdown and
-Org files, parses notes/headings/tasks into entities, and submits them through
-the App Intents/Core Spotlight adapter. A versioned, rebuildable catalog keeps
+Org files, parses notes/headings/tasks with bounded section bodies, summaries,
+tags, links, planning dates, hierarchy, and precise source ranges, and submits
+them through the App Intents/Core Spotlight adapter. A versioned, rebuildable
+catalog keeps
 entity membership and pending idempotent index mutations across launches, and
 reconciles canonical identity across ordinary edits, duplicate headings,
 renames, file moves, and uniquely identifiable source-root moves. Org IDs,
@@ -45,8 +47,8 @@ match remain custom. Projection versions trigger a controlled Spotlight rebuild
 when their shape changes.
 The Index view queries donated entities through Spotlight’s ranked user-query
 API. The parser and Apple projection remain deliberate probes rather than final
-implementations: filesystem change observation, richer parsing, and editor
-connectors are still ahead. SDK-specific findings are recorded in
+implementations: filesystem change observation, broader syntax coverage, and
+editor connectors are still ahead. SDK-specific findings are recorded in
 [Platform probes](Docs/PLATFORM_PROBES.md).
 
 ## Build

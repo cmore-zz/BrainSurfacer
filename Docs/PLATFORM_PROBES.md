@@ -36,9 +36,13 @@ Relevant Apple documentation:
 
 ### Projection lifecycle
 
-The current projection schema version is `2`. When the stored version differs,
+The current projection schema version is `3`. When the stored version differs,
 the Apple adapter removes all BrainSurfacer custom and Notes App Entities before
 accepting the first replacement mutation, then records the version. Every
 upsert also removes the same identifier from both projection types before
 indexing it, preventing duplicates if a canonical entity changes projection
 type.
+
+Version 3 separates concise display descriptions from complete searchable
+section text. Custom and Notes projections write `contentDescription` from the
+entity summary and `textContent` from its bounded body.

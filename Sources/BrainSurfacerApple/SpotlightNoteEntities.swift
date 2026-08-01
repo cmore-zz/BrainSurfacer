@@ -153,7 +153,7 @@ public struct SpotlightNoteEntity: IndexedEntity {
     }
 
     @ComputedProperty public var content: AttributedString? {
-        (entity.summary ?? entity.body).map(AttributedString.init)
+        (entity.body ?? entity.summary).map(AttributedString.init)
     }
 
     @ComputedProperty public var attachments: [IntentFile] {
@@ -198,6 +198,7 @@ public struct SpotlightNoteEntity: IndexedEntity {
         attributes.contentType = UTType.content.identifier
         attributes.contentURL = sourceURL
         attributes.textContent = content.map { String($0.characters) }
+        attributes.contentDescription = entity.summary
         return attributes
     }
 
