@@ -59,7 +59,8 @@ public struct SpotlightKnowledgeEntity: IndexedEntity {
 
         public init() {
             catalog = PersistentEntityCatalog(
-                storageURL: PersistentEntityCatalog.defaultStorageURL()
+                storageURL: PersistentEntityCatalog.defaultStorageURL(),
+                accessMode: .readOnly
             )
         }
 

@@ -33,7 +33,8 @@ public struct SpotlightNoteTagEntity: AppEntity {
 
         public init() {
             catalog = PersistentEntityCatalog(
-                storageURL: PersistentEntityCatalog.defaultStorageURL()
+                storageURL: PersistentEntityCatalog.defaultStorageURL(),
+                accessMode: .readOnly
             )
         }
 
@@ -114,7 +115,8 @@ public struct SpotlightNoteFolderEntity {
 
         public init() {
             catalog = PersistentEntityCatalog(
-                storageURL: PersistentEntityCatalog.defaultStorageURL()
+                storageURL: PersistentEntityCatalog.defaultStorageURL(),
+                accessMode: .readOnly
             )
         }
 
@@ -211,7 +213,8 @@ public struct SpotlightNoteEntity: IndexedEntity {
 
         public init() {
             catalog = PersistentEntityCatalog(
-                storageURL: PersistentEntityCatalog.defaultStorageURL()
+                storageURL: PersistentEntityCatalog.defaultStorageURL(),
+                accessMode: .readOnly
             )
         }
 

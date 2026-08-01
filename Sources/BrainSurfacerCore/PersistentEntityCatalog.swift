@@ -4,7 +4,13 @@ import Foundation
 public actor PersistentEntityCatalog: EntityCatalog {
     public static let currentSchemaVersion = 1
 
+    public enum AccessMode: Sendable, Equatable {
+        case readOnly
+        case coordinatingWriter
+    }
+
     public let storageURL: URL
+    public let accessMode: AccessMode
 
     private var entitiesByID: [EntityID: KnowledgeEntity] = [:]
     private var identifiersBySource: [URL: Set<EntityID>] = [:]
@@ -12,8 +18,12 @@ public actor PersistentEntityCatalog: EntityCatalog {
     private var pendingChanges: [PendingEntityIndexChange] = []
     private var fullRebuildRequired = false
 
-    public init(storageURL: URL) {
+    public init(
+        storageURL: URL,
+        accessMode: AccessMode = .readOnly
+    ) {
         self.storageURL = storageURL.standardizedFileURL
+        self.accessMode = accessMode
     }
 
     public static func defaultStorageURL(
@@ -32,6 +42,7 @@ public actor PersistentEntityCatalog: EntityCatalog {
         from source: URL,
         with entities: [KnowledgeEntity]
     ) throws -> EntityIndexChange {
+        try requireCoordinatingWriter()
         try reload()
         let change = replaceInMemory(from: source, with: entities)
         try persist()
@@ -42,6 +53,7 @@ public actor PersistentEntityCatalog: EntityCatalog {
         from source: URL,
         with entities: [KnowledgeEntity]
     ) async throws -> PendingEntityIndexChange {
+        try requireCoordinatingWriter()
         try reload()
         let pending = PendingEntityIndexChange(
             change: replaceInMemory(from: source, with: entities)
@@ -57,6 +69,7 @@ public actor PersistentEntityCatalog: EntityCatalog {
     }
 
     public func acknowledgeIndexChange(identifiedBy identifier: UUID) async throws {
+        try requireCoordinatingWriter()
         try reload()
         pendingChanges.removeAll { $0.id == identifier }
         try persist()
@@ -68,6 +81,7 @@ public actor PersistentEntityCatalog: EntityCatalog {
     }
 
     public func markFullRebuildCompleted() async throws {
+        try requireCoordinatingWriter()
         try reload()
         fullRebuildRequired = false
         try persist()
@@ -138,6 +152,7 @@ public actor PersistentEntityCatalog: EntityCatalog {
         value: String,
         for identifier: EntityID
     ) throws {
+        try requireCoordinatingWriter()
         try reload()
         providerReferences[
             ProviderReference(providerID: providerID, value: value)
@@ -192,16 +207,22 @@ public actor PersistentEntityCatalog: EntityCatalog {
             return
         }
 
+        let data: Data
+        do {
+            data = try Data(contentsOf: storageURL)
+        } catch {
+            try handleInvalidCatalog(originalData: nil)
+            return
+        }
         let state: PersistedState
         do {
-            let data = try Data(contentsOf: storageURL)
             state = try JSONDecoder().decode(PersistedState.self, from: data)
         } catch {
-            try recoverFromInvalidCatalog()
+            try handleInvalidCatalog(originalData: data)
             return
         }
         guard state.schemaVersion == Self.currentSchemaVersion else {
-            try recoverFromInvalidCatalog()
+            try handleInvalidCatalog(originalData: data)
             return
         }
         load(state)
@@ -231,13 +252,22 @@ public actor PersistentEntityCatalog: EntityCatalog {
         fullRebuildRequired = state.fullRebuildRequired ?? false
     }
 
-    private func recoverFromInvalidCatalog() throws {
-        let quarantineURL = storageURL.appendingPathExtension(
-            "invalid-\(UUID().uuidString)"
-        )
-        try? FileManager.default.moveItem(at: storageURL, to: quarantineURL)
+    private func handleInvalidCatalog(originalData: Data?) throws {
         resetInMemory(fullRebuildRequired: true)
+        guard accessMode == .coordinatingWriter else {
+            return
+        }
+
+        // Correctness depends on the recovery marker, not the diagnostic copy.
+        // Keep the invalid bytes in memory while the atomic persist replaces the
+        // catalog, then update one bounded quarantine file best-effort.
         try persist()
+        if let originalData {
+            try? originalData.write(
+                to: storageURL.appendingPathExtension("invalid"),
+                options: [.atomic]
+            )
+        }
     }
 
     private func resetInMemory(fullRebuildRequired: Bool) {
@@ -246,6 +276,12 @@ public actor PersistentEntityCatalog: EntityCatalog {
         providerReferences = [:]
         pendingChanges = []
         self.fullRebuildRequired = fullRebuildRequired
+    }
+
+    private func requireCoordinatingWriter() throws {
+        guard accessMode == .coordinatingWriter else {
+            throw Error.readOnly
+        }
     }
 
     private func persist() throws {
@@ -282,6 +318,19 @@ public actor PersistentEntityCatalog: EntityCatalog {
             withIntermediateDirectories: true
         )
         try data.write(to: storageURL, options: [.atomic])
+    }
+}
+
+public extension PersistentEntityCatalog {
+    enum Error: LocalizedError, Equatable {
+        case readOnly
+
+        public var errorDescription: String? {
+            switch self {
+            case .readOnly:
+                "This entity catalog is configured for read-only resolution."
+            }
+        }
     }
 }
 

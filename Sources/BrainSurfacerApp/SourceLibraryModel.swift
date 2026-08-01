@@ -46,7 +46,8 @@ final class SourceLibraryModel {
         self.scanner = scanner
         self.entitySearch = entitySearch
         let catalog = PersistentEntityCatalog(
-            storageURL: PersistentEntityCatalog.defaultStorageURL()
+            storageURL: PersistentEntityCatalog.defaultStorageURL(),
+            accessMode: .coordinatingWriter
         )
         coordinator = IndexingCoordinator(
             catalog: catalog,

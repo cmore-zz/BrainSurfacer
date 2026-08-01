@@ -88,11 +88,13 @@ clears the permanent projection before rebuilding every enrolled source and
 only then clears the recovery marker. This prevents catalog recovery from
 leaving stale platform records behind.
 
-The app process is currently the only routine catalog writer; App Entity queries
-do not mutate healthy catalog state. Atomic file replacement gives readers a
-complete old or new snapshot but is not multi-process writer coordination. Any
-extension or editor connector that writes catalog state must first add a file
-lock or move the catalog to a transactional store such as SQLite.
+The app process owns the catalog's explicit coordinating-writer instance. App
+Entity queries use read-only instances: an invalid catalog produces an empty
+in-memory snapshot without changing the shared file, leaving quarantine and
+rebuild initiation to the app. Atomic file replacement gives readers a complete
+old or new snapshot but is not multi-process writer coordination. Any extension
+or editor connector that writes catalog state must first add a file lock or move
+the catalog to a transactional store such as SQLite.
 
 Ports define the permanent index, entity search, context providers, contextual
 publishing, and document opening. No port mentions an Apple framework or
