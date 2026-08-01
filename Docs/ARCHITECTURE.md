@@ -175,7 +175,9 @@ editor, while a search route only presents a query in BrainSurfacer.
 The configured macOS opener routes to the file's default application, an
 Obsidian URI with the closest Markdown heading, or Emacs.app arguments with the
 closest line and column. A failed or stale editor preference falls back to the
-system default. Before checking or dispatching a source file, the opener
+system default. Editor-specific probes do not present a system app-picker;
+only the terminal default-app path prompts the user if macOS needs help. Before
+checking or dispatching a source file, the opener
 resolves the saved bookmark for the most-specific enrolled parent directory and
 holds its security-scoped access for the complete operation. This makes the
 same sandbox permission available to UI and App Intent opens without keeping

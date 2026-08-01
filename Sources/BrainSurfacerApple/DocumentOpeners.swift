@@ -148,7 +148,10 @@ public struct ConfiguredDocumentOpener: DocumentOpener {
                     guard let url = Self.obsidianURL(for: entity) else {
                         throw DocumentOpeningFailure.applicationUnavailable("Obsidian")
                     }
-                    try await Self.openWithSystemDefault(url)
+                    try await Self.openWithSystemDefault(
+                        url,
+                        promptsUserIfNeeded: false
+                    )
                 case .emacs:
                     try await Self.openWithEmacs(entity, configuredPath: settings.1)
                 }
@@ -214,16 +217,22 @@ public struct ConfiguredDocumentOpener: DocumentOpener {
     }
 
     @MainActor
-    private static func openWithSystemDefault(_ url: URL) async throws {
+    private static func openWithSystemDefault(
+        _ url: URL,
+        promptsUserIfNeeded: Bool = true
+    ) async throws {
         let configuration = NSWorkspace.OpenConfiguration()
-        configuration.promptsUserIfNeeded = true
+        configuration.promptsUserIfNeeded = promptsUserIfNeeded
         do {
             _ = try await NSWorkspace.shared.open(
                 url,
                 configuration: configuration
             )
         } catch {
-            throw WorkspaceRejectedOpening(url: url)
+            if promptsUserIfNeeded {
+                throw WorkspaceRejectedOpening(url: url)
+            }
+            throw WorkspaceProbeFailure(url: url)
         }
     }
 
@@ -259,5 +268,13 @@ private struct WorkspaceRejectedOpening: LocalizedError,
 
     var errorDescription: String? {
         "macOS could not open \(url.lastPathComponent)."
+    }
+}
+
+private struct WorkspaceProbeFailure: LocalizedError, Sendable {
+    let url: URL
+
+    var errorDescription: String? {
+        "No application accepted \(url.scheme ?? "the requested") URL."
     }
 }
