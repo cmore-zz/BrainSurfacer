@@ -33,6 +33,25 @@ func ordinaryCanonicalIdentifierIsPreservedBySpotlightProjection() {
 }
 
 @Test
+func customProjectionSeparatesSearchableBodyFromDisplaySummary() {
+    let entity = KnowledgeEntity(
+        id: EntityID(rawValue: "section"),
+        kind: .heading,
+        title: "Section",
+        body: "The complete searchable section body contains a canary phrase.",
+        summary: "A short display summary.",
+        source: SourceAnchor(fileURL: URL(fileURLWithPath: "/tmp/Section.md"))
+    )
+
+    let projection = SpotlightKnowledgeEntity(entity)
+
+    #expect(projection.text == entity.body)
+    #expect(projection.summary == entity.summary)
+    #expect(projection.attributeSet.textContent == entity.body)
+    #expect(projection.attributeSet.contentDescription == entity.summary)
+}
+
+@Test
 func spotlightErrorDescriptionExplainsInvalidMetadata() {
     let error = SpotlightIndexingError(code: -1001)
 
@@ -48,6 +67,7 @@ func noteProjectionUsesNotesSchemaAndItsOwnSearchDomain() {
         kind: .note,
         title: "Note",
         body: "Searchable text",
+        summary: "Short note summary",
         tags: ["swift", "Work"],
         source: SourceAnchor(fileURL: URL(fileURLWithPath: "/tmp/Notes/Note.md")),
         modifiedAt: modifiedAt,
@@ -64,6 +84,7 @@ func noteProjectionUsesNotesSchemaAndItsOwnSearchDomain() {
     #expect(projection.modificationDate == modifiedAt)
     #expect(projection.folder?.name == "Notes")
     #expect(projection.attributeSet.textContent == "Searchable text")
+    #expect(projection.attributeSet.contentDescription == "Short note summary")
     #expect(searchableItem.domainIdentifier == SpotlightNoteEntity.searchDomainIdentifier)
 }
 

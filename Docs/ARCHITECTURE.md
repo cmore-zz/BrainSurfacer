@@ -46,8 +46,8 @@ and UI can be replaced independently.
 
 `KnowledgeEntity` is the canonical editor-independent representation. An entity
 has a stable application identifier, kind, title, optional body and summary,
-tags, links, relationships, and a source anchor that can return the user to a
-file, heading, and line.
+tags, links, structured source dates, relationships, and a source anchor that
+can return the user to a file, heading, line range, and UTF-8 byte range.
 
 The first model uses an extensible `kind` enum and typed relationships. This is
 intentionally less specific than Apple's schema domains. As evidence
@@ -62,8 +62,17 @@ semantic entities and diagnostics. They must retain enough source structure to
 support headings, hierarchy, tags, links, timestamps, TODO states, properties,
 source blocks, and attachments.
 
-The included `OutlineParser` only proves the boundary with Markdown and Org
-headings. It is not the production parser.
+The included `OutlineParser` indexes a document plus Markdown and Org outline
+entities. A section body contains only prose before its first child or sibling
+heading; child prose belongs to the child entity and is not duplicated into its
+ancestors. The source anchor separately spans the complete section subtree so
+an opener can select the closest meaningful source range. Searchable document
+and section bodies are UTF-8-safely bounded at 512 KiB and 64 KiB respectively,
+summaries are bounded at 240 characters, and heading nesting is bounded at 32
+levels. Truncation is explicit entity metadata. Org property drawers and
+planning lines, and Markdown front matter, contribute identity, tags, or dates
+without polluting section prose. The representative parser corpus locks these
+policies down while broader syntax coverage remains future work.
 
 ### Core
 
@@ -132,11 +141,14 @@ bind structured values to Spotlight indexing keys. Raw
 source metadata needed for reliable search and opening; they are no longer the
 sole carrier of structured semantics.
 
-Projection schema version `2` is persisted separately from the disposable
+Projection schema version `3` is persisted separately from the disposable
 catalog. A version change removes every custom and Notes App Entity before the
 first new mutation is accepted. Each upsert first removes its platform ID from
 both projection types, which also makes a note-to-custom type transition
-idempotent. Schema-specific `IndexedEntityQuery` implementations service partial
+idempotent. Display summaries and full searchable bodies remain distinct in
+both custom and Notes projections: Core Spotlight's content description
+receives the summary while its text content receives the body. Schema-specific
+`IndexedEntityQuery` implementations service partial
 and full Spotlight rebuild requests from the shared durable catalog.
 
 In-app search goes back through the `EntitySearch` port. The Apple adapter uses

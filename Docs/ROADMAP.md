@@ -36,7 +36,7 @@ invariants.
   Spotlight attributes for supplementary metadata.
 - Version projections so schema changes can trigger a controlled rebuild.
 
-## 4. Section content and precise source anchors
+## 4. Section content and precise source anchors *(implemented)*
 
 - Parse bounded section bodies rather than indexing heading titles alone.
 - Retain heading paths, byte/line ranges, parent documents, tags, links, dates,

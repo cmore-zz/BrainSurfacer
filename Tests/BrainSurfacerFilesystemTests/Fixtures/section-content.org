@@ -1,0 +1,18 @@
+#+title: Release Notes
+#+filetags: :org:planning:
+
+* NEXT Release :swift:
+SCHEDULED: <2026-08-03 Mon> DEADLINE: <2026-08-07 Fri>
+:PROPERTIES:
+:ID: 72A90D5B-F22F-46B2-8DF4-85FAE69947C0
+:END:
+
+Coordinate the release using [[https://example.com/runbook][the runbook]].
+
+** Verification
+
+Child verification text is indexed separately.
+
+* Archive
+CLOSED: [2026-08-08 Sat]
+This must not appear in the release section.

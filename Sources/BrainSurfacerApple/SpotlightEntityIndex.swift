@@ -18,6 +18,7 @@ public struct SpotlightKnowledgeEntity: IndexedEntity {
     @Property(indexingKey: \.displayName) public var title: String
     @Property public var subtitle: String
     @Property(indexingKey: \.textContent) public var text: String?
+    @Property public var summary: String?
     @Property(indexingKey: \.keywords) public var tags: [String]
     @Property(indexingKey: \.contentURL) public var sourceURL: URL
     @Property(indexingKey: \.contentModificationDate) public var modifiedAt: Date?
@@ -30,7 +31,7 @@ public struct SpotlightKnowledgeEntity: IndexedEntity {
         let attributes = defaultAttributeSet
         attributes.contentType = UTType.content.identifier
         attributes.displayName = title
-        attributes.contentDescription = text
+        attributes.contentDescription = summary
         attributes.textContent = text
         attributes.keywords = tags
         attributes.contentURL = sourceURL
@@ -42,7 +43,8 @@ public struct SpotlightKnowledgeEntity: IndexedEntity {
         id = Self.indexIdentifier(for: entity.id)
         title = entity.title
         subtitle = entity.kind.rawValue.capitalized
-        text = entity.summary ?? entity.body
+        text = entity.body ?? entity.summary
+        summary = entity.summary
         tags = entity.tags.sorted()
         sourceURL = entity.source.fileURL
         modifiedAt = entity.modifiedAt
