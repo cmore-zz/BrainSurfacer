@@ -45,7 +45,7 @@ invariants.
 - Define size, nesting, and child-section policies using a representative
   Markdown and Org corpus.
 
-## 5. Open and in-app search actions
+## 5. Open and in-app search actions *(implemented)*
 
 - Add an App Intent open action for every persistent entity.
 - Route durable entity deep links through configurable Emacs, Obsidian, and

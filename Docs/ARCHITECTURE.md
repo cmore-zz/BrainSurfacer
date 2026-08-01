@@ -143,7 +143,7 @@ bind structured values to Spotlight indexing keys. Raw
 source metadata needed for reliable search and opening; they are no longer the
 sole carrier of structured semantics.
 
-Projection schema version `3` is persisted separately from the disposable
+Projection schema version `4` is persisted separately from the disposable
 catalog. A version change removes every custom and Notes App Entity before the
 first new mutation is accepted. Each upsert first removes its platform ID from
 both projection types, which also makes a note-to-custom type transition
@@ -157,6 +157,21 @@ In-app search goes back through the `EntitySearch` port. The Apple adapter uses
 `CSUserQuery` for ranked lexical and semantic results and filters on a
 BrainSurfacer App Entity domain, so only opted-in knowledge donations are
 returned. Core and the UI do not construct Spotlight predicates.
+
+Every persistent projection carries a `brainsurfacer://` content URL containing
+its canonical entity identifier; the original source path remains separate
+Spotlight metadata. Spotlight results, Open Intents for custom and Notes
+entities, direct deep links, and rows in the Index view all resolve that
+identifier through `EntityOpeningCoordinator` before dispatch. This prevents a
+stale projected path from becoming a second identity system and lets catalog
+reconciliation follow moves and renames.
+
+The configured macOS opener routes to the file's default application, an
+Obsidian URI with the closest Markdown heading, or Emacs.app arguments with the
+closest line and column. A failed or stale editor preference falls back to the
+system default. The system `ShowInAppSearchResultsIntent` persists its term long
+enough for app launch and presents the same Spotlight-backed Index search UI;
+an in-process notification handles an already-running app.
 
 The macOS 27 `IndexedEntityQuery` adapters resolve identifiers from the durable
 catalog. They handle partial reindex requests by restoring known entities and

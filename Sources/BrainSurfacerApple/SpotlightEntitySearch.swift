@@ -1,4 +1,5 @@
 import BrainSurfacerCore
+import BrainSurfacerModel
 @preconcurrency import CoreSpotlight
 import Foundation
 
@@ -28,6 +29,7 @@ public struct SpotlightEntitySearch: EntitySearch {
             "displayName",
             "contentDescription",
             "contentURL",
+            "path",
             "domainIdentifier"
         ]
         context.filterQueries = [
@@ -67,7 +69,17 @@ public struct SpotlightEntitySearch: EntitySearch {
 
     static func result(from item: CSSearchableItem) -> EntitySearchResult {
         let attributes = item.attributeSet
-        let sourceURL = attributes.contentURL
+        let deepLink = attributes.contentURL.flatMap {
+            BrainSurfacerDeepLink(url: $0)
+        }
+        let entityID: EntityID?
+        if case let .entity(identifier) = deepLink {
+            entityID = identifier
+        } else {
+            entityID = nil
+        }
+        let sourceURL = attributes.path.map(URL.init(fileURLWithPath:))
+            ?? attributes.contentURL.flatMap { $0.isFileURL ? $0 : nil }
         let title = attributes.title
             ?? attributes.displayName
             ?? sourceURL?.deletingPathExtension().lastPathComponent
@@ -75,6 +87,7 @@ public struct SpotlightEntitySearch: EntitySearch {
 
         return EntitySearchResult(
             id: item.uniqueIdentifier,
+            entityID: entityID,
             title: title,
             summary: attributes.contentDescription,
             sourceURL: sourceURL

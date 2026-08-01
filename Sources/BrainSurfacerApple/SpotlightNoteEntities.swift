@@ -182,8 +182,8 @@ public struct SpotlightNoteEntity: IndexedEntity {
         )
     }
 
-    @ComputedProperty(indexingKey: \.contentURL) public var sourceURL: URL {
-        entity.source.fileURL
+    @ComputedProperty(indexingKey: \.contentURL) public var openURL: URL {
+        BrainSurfacerDeepLink.entity(entity.id).url
     }
 
     public var displayRepresentation: DisplayRepresentation {
@@ -196,7 +196,8 @@ public struct SpotlightNoteEntity: IndexedEntity {
     public var attributeSet: CSSearchableItemAttributeSet {
         let attributes = defaultAttributeSet
         attributes.contentType = UTType.content.identifier
-        attributes.contentURL = sourceURL
+        attributes.contentURL = openURL
+        attributes.path = entity.source.fileURL.path
         attributes.textContent = content.map { String($0.characters) }
         attributes.contentDescription = entity.summary
         return attributes
@@ -206,6 +207,8 @@ public struct SpotlightNoteEntity: IndexedEntity {
         id = SpotlightProjection.indexIdentifier(for: entity.id)
         self.entity = entity
     }
+
+    var canonicalEntityID: EntityID { entity.id }
 
     public struct Query: IndexedEntityQuery {
         public static let persistentIdentifier = "brainsurfacer.query.notes-note.v1"

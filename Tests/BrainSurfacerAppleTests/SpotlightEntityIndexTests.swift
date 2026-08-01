@@ -49,6 +49,8 @@ func customProjectionSeparatesSearchableBodyFromDisplaySummary() {
     #expect(projection.summary == entity.summary)
     #expect(projection.attributeSet.textContent == entity.body)
     #expect(projection.attributeSet.contentDescription == entity.summary)
+    #expect(projection.openURL == BrainSurfacerDeepLink.entity(entity.id).url)
+    #expect(projection.attributeSet.path == entity.source.fileURL.path)
 }
 
 @Test
@@ -85,6 +87,8 @@ func noteProjectionUsesNotesSchemaAndItsOwnSearchDomain() {
     #expect(projection.folder?.name == "Notes")
     #expect(projection.attributeSet.textContent == "Searchable text")
     #expect(projection.attributeSet.contentDescription == "Short note summary")
+    #expect(projection.openURL == BrainSurfacerDeepLink.entity(entity.id).url)
+    #expect(projection.attributeSet.path == entity.source.fileURL.path)
     #expect(searchableItem.domainIdentifier == SpotlightNoteEntity.searchDomainIdentifier)
 }
 
@@ -93,7 +97,9 @@ func spotlightSearchResultPreservesDisplayMetadata() {
     let attributes = CSSearchableItemAttributeSet()
     attributes.title = "Search result"
     attributes.contentDescription = "A short excerpt"
-    attributes.contentURL = URL(fileURLWithPath: "/tmp/Result.md")
+    let entityID = EntityID(rawValue: "canonical-result")
+    attributes.contentURL = BrainSurfacerDeepLink.entity(entityID).url
+    attributes.path = "/tmp/Result.md"
     let item = CSSearchableItem(
         uniqueIdentifier: "result-id",
         domainIdentifier: SpotlightKnowledgeEntity.searchDomainIdentifier,
@@ -103,9 +109,40 @@ func spotlightSearchResultPreservesDisplayMetadata() {
     let result = SpotlightEntitySearch.result(from: item)
 
     #expect(result.id == "result-id")
+    #expect(result.entityID == entityID)
     #expect(result.title == "Search result")
     #expect(result.summary == "A short excerpt")
     #expect(result.sourceURL == URL(fileURLWithPath: "/tmp/Result.md"))
+}
+
+@Test
+func editorRequestsPreserveTheBestAvailableSourceAnchor() throws {
+    let entity = KnowledgeEntity(
+        id: EntityID(rawValue: "anchored"),
+        kind: .heading,
+        title: "Launch Plan",
+        source: SourceAnchor(
+            fileURL: URL(fileURLWithPath: "/tmp/Project Plan.md"),
+            headingPath: ["Project", "Launch Plan"],
+            line: 42,
+            column: 7
+        )
+    )
+
+    let obsidianURL = try #require(ConfiguredDocumentOpener.obsidianURL(for: entity))
+    let components = try #require(
+        URLComponents(url: obsidianURL, resolvingAgainstBaseURL: false)
+    )
+
+    #expect(obsidianURL.scheme == "obsidian")
+    #expect(
+        components.queryItems?.first(where: { $0.name == "path" })?.value
+            == "/tmp/Project Plan.md#Launch Plan"
+    )
+    #expect(
+        ConfiguredDocumentOpener.emacsArguments(for: entity)
+            == ["+42:7", "/tmp/Project Plan.md"]
+    )
 }
 
 @Test
