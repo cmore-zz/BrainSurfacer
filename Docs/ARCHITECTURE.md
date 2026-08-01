@@ -70,9 +70,17 @@ headings. It is not the production parser.
 Core coordinates source replacement as a single logical mutation:
 
 1. parse one changed source;
-2. replace that source's entities in the catalog;
-3. upsert new/changed entities in the permanent index;
-4. remove stale entity identifiers.
+2. stage that source's intended catalog state and durable index mutation;
+3. replay any older pending index mutations in order;
+4. upsert new/changed entities and remove stale identifiers;
+5. acknowledge the mutation only after the permanent index accepts it.
+
+The production catalog is a versioned, rebuildable JSON projection in
+Application Support. It preserves source membership, canonical entities,
+provider-local references, and pending index mutations across launches. A
+mutation is idempotent and remains pending after an adapter failure or process
+crash, so startup recovery can replay it without losing stale deletions. The
+in-memory catalog remains available for focused tests and transient tools.
 
 Ports define the permanent index, entity search, context providers, contextual
 publishing, and document opening. No port mentions an Apple framework or
@@ -96,9 +104,11 @@ In-app search goes back through the `EntitySearch` port. The Apple adapter uses
 BrainSurfacer App Entity domain, so only opted-in knowledge donations are
 returned. Core and the UI do not construct Spotlight predicates.
 
-The macOS 27 SDK adds `IndexedEntityQuery` for Spotlight-requested reindexing.
-That should call back through the core catalog/rebuild path; it should not become
-a second store.
+The macOS 27 `IndexedEntityQuery` adapter resolves identifiers from the durable
+catalog. It handles partial reindex requests by restoring known entities and
+deleting requested identifiers that no longer resolve; a full request rebuilds
+the BrainSurfacer entity type from the catalog. This remains a projection of the
+filesystem rather than a second source of truth.
 
 The SDK also adds `RelevantEntities`, but its public context surface is currently
 domain-specific rather than a general “current working set” mechanism. The

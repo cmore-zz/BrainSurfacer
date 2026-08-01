@@ -63,11 +63,69 @@ public struct SpotlightKnowledgeEntity: IndexedEntity {
         return "sha256:\(digest)"
     }
 
-    public struct Query: EntityQuery {
-        public init() {}
+    public struct Query: IndexedEntityQuery {
+        private let catalog: any EntityCatalog
+
+        public init() {
+            catalog = PersistentEntityCatalog(
+                storageURL: PersistentEntityCatalog.defaultStorageURL()
+            )
+        }
+
+        public init(catalog: any EntityCatalog) {
+            self.catalog = catalog
+        }
 
         public func entities(for identifiers: [String]) async throws -> [SpotlightKnowledgeEntity] {
-            []
+            let projections = try await catalog.allEntities()
+                .map(SpotlightKnowledgeEntity.init)
+            var projectionByID: [String: SpotlightKnowledgeEntity] = [:]
+            for projection in projections {
+                projectionByID[projection.id] = projection
+            }
+            return identifiers.compactMap { projectionByID[$0] }
+        }
+
+        public func reindexEntities(
+            for identifiers: [String],
+            indexDescription: CSSearchableIndexDescription
+        ) async throws {
+            let index = Self.index(for: indexDescription)
+            let entities = try await entities(for: identifiers)
+            let foundIdentifiers = Set(entities.map(\.id))
+            let missingIdentifiers = identifiers.filter {
+                !foundIdentifiers.contains($0)
+            }
+
+            if !entities.isEmpty {
+                try await index.indexAppEntities(entities)
+            }
+            if !missingIdentifiers.isEmpty {
+                try await index.deleteAppEntities(
+                    identifiedBy: missingIdentifiers,
+                    ofType: SpotlightKnowledgeEntity.self
+                )
+            }
+        }
+
+        public func reindexAllEntities(
+            indexDescription: CSSearchableIndexDescription
+        ) async throws {
+            let index = Self.index(for: indexDescription)
+            let entities = try await catalog.allEntities()
+                .map(SpotlightKnowledgeEntity.init)
+            if !entities.isEmpty {
+                try await index.indexAppEntities(entities)
+            }
+        }
+
+        private static func index(
+            for description: CSSearchableIndexDescription
+        ) -> CSSearchableIndex {
+            CSSearchableIndex(
+                name: SpotlightEntityIndex.indexName,
+                protectionClass: description.protectionClass
+            )
         }
     }
 }

@@ -1,4 +1,5 @@
 @testable import BrainSurfacerApple
+import BrainSurfacerCore
 import BrainSurfacerModel
 import CoreSpotlight
 import Foundation
@@ -74,4 +75,32 @@ func spotlightSearchResultPreservesDisplayMetadata() {
     #expect(result.title == "Search result")
     #expect(result.summary == "A short excerpt")
     #expect(result.sourceURL == URL(fileURLWithPath: "/tmp/Result.md"))
+}
+
+@Test
+func spotlightEntityQueryResolvesDurableAndHashedIdentifiers() async throws {
+    let source = URL(fileURLWithPath: "/notes/query.md")
+    let ordinary = KnowledgeEntity(
+        id: EntityID(rawValue: "ordinary"),
+        kind: .note,
+        title: "Ordinary",
+        source: SourceAnchor(fileURL: source)
+    )
+    let oversized = KnowledgeEntity(
+        id: EntityID(rawValue: String(repeating: "long", count: 600)),
+        kind: .heading,
+        title: "Oversized",
+        source: SourceAnchor(fileURL: source)
+    )
+    let catalog = InMemoryEntityCatalog()
+    _ = await catalog.replaceEntities(from: source, with: [ordinary, oversized])
+    let ordinaryID = SpotlightKnowledgeEntity.indexIdentifier(for: ordinary.id)
+    let oversizedID = SpotlightKnowledgeEntity.indexIdentifier(for: oversized.id)
+    let query = SpotlightKnowledgeEntity.Query(catalog: catalog)
+
+    let entities = try await query.entities(
+        for: [oversizedID, "missing", ordinaryID]
+    )
+
+    #expect(entities.map(\.id) == [oversizedID, ordinaryID])
 }

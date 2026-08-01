@@ -1,13 +1,29 @@
 import BrainSurfacerModel
 import Foundation
 
-public struct EntityIndexChange: Sendable, Equatable {
+public struct EntityIndexChange: Codable, Sendable, Equatable {
     public var upserts: [KnowledgeEntity]
     public var removals: Set<EntityID>
 
     public init(upserts: [KnowledgeEntity], removals: Set<EntityID>) {
         self.upserts = upserts
         self.removals = removals
+    }
+}
+
+public struct PendingEntityIndexChange: Codable, Identifiable, Sendable, Equatable {
+    public var id: UUID
+    public var createdAt: Date
+    public var change: EntityIndexChange
+
+    public init(
+        id: UUID = UUID(),
+        createdAt: Date = Date(),
+        change: EntityIndexChange
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.change = change
     }
 }
 
@@ -22,7 +38,33 @@ public protocol EntityCatalog: Sendable {
     ) async throws -> EntityIndexChange
 
     func entities(identifiedBy identifiers: [EntityID]) async throws -> [KnowledgeEntity]
+    func allEntities() async throws -> [KnowledgeEntity]
     func resolve(_ reference: EntityReference) async throws -> KnowledgeEntity?
+
+    func stageReplacement(
+        from source: URL,
+        with entities: [KnowledgeEntity]
+    ) async throws -> PendingEntityIndexChange
+
+    func pendingIndexChanges() async throws -> [PendingEntityIndexChange]
+    func acknowledgeIndexChange(identifiedBy identifier: UUID) async throws
+}
+
+public extension EntityCatalog {
+    func stageReplacement(
+        from source: URL,
+        with entities: [KnowledgeEntity]
+    ) async throws -> PendingEntityIndexChange {
+        PendingEntityIndexChange(
+            change: try await replaceEntities(from: source, with: entities)
+        )
+    }
+
+    func pendingIndexChanges() async throws -> [PendingEntityIndexChange] {
+        []
+    }
+
+    func acknowledgeIndexChange(identifiedBy identifier: UUID) async throws {}
 }
 
 public enum EntityReference: Codable, Hashable, Sendable {

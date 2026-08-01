@@ -45,7 +45,9 @@ final class SourceLibraryModel {
         self.store = store
         self.scanner = scanner
         self.entitySearch = entitySearch
-        let catalog = InMemoryEntityCatalog()
+        let catalog = PersistentEntityCatalog(
+            storageURL: PersistentEntityCatalog.defaultStorageURL()
+        )
         coordinator = IndexingCoordinator(
             catalog: catalog,
             permanentIndex: SpotlightEntityIndex()
@@ -53,7 +55,13 @@ final class SourceLibraryModel {
         Task {
             sources = await store.load()
             isLoading = false
-            await reindexAll()
+            do {
+                try await coordinator.replayPendingChanges()
+                await reindexAll()
+            } catch {
+                errorMessage = "BrainSurfacer couldn’t recover its pending index "
+                    + "changes: \(error.localizedDescription)"
+            }
         }
     }
 

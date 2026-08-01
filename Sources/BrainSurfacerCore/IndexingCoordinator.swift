@@ -17,7 +17,22 @@ public actor IndexingCoordinator {
         from source: URL,
         with entities: [KnowledgeEntity]
     ) async throws {
-        let change = try await catalog.replaceEntities(from: source, with: entities)
-        try await permanentIndex.apply(change)
+        try await replayPendingChanges()
+        let pending = try await catalog.stageReplacement(from: source, with: entities)
+        try await applyAndAcknowledge(pending)
+    }
+
+    public func replayPendingChanges() async throws {
+        let pendingChanges = try await catalog.pendingIndexChanges()
+        for pending in pendingChanges {
+            try await applyAndAcknowledge(pending)
+        }
+    }
+
+    private func applyAndAcknowledge(
+        _ pending: PendingEntityIndexChange
+    ) async throws {
+        try await permanentIndex.apply(pending.change)
+        try await catalog.acknowledgeIndexChange(identifiedBy: pending.id)
     }
 }

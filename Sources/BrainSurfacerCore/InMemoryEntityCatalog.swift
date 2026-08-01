@@ -32,6 +32,10 @@ public actor InMemoryEntityCatalog: EntityCatalog {
         identifiers.compactMap { entitiesByID[$0] }
     }
 
+    public func allEntities() -> [KnowledgeEntity] {
+        entitiesByID.values.sorted { $0.id.rawValue < $1.id.rawValue }
+    }
+
     public func resolve(_ reference: EntityReference) -> KnowledgeEntity? {
         switch reference {
         case let .entityID(identifier):

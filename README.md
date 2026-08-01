@@ -33,11 +33,13 @@ This repository contains an early, architecture-first prototype:
 
 The app currently persists opted-in directories, recursively scans Markdown and
 Org files, parses notes/headings/tasks into entities, and submits them through
-the App Intents/Core Spotlight adapter. The Index view queries those donated
-entities through Spotlight’s ranked user-query API. The parser and Apple
-adapter remain deliberate probes rather than final implementations: filesystem
-change observation, durable incremental state, richer parsing, and editor
-connectors are still ahead.
+the App Intents/Core Spotlight adapter. A versioned, rebuildable catalog keeps
+entity membership and pending idempotent index mutations across launches, and
+the App Entity query supports Spotlight-requested partial and full reindexing.
+The Index view queries donated entities through Spotlight’s ranked user-query
+API. The parser and Apple projection remain deliberate probes rather than final
+implementations: filesystem change observation, stable cross-rename identity,
+schema-aware entities, richer parsing, and editor connectors are still ahead.
 
 ## Build
 
