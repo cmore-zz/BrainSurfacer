@@ -1,3 +1,4 @@
+import BrainSurfacerCore
 import Foundation
 
 public struct SourceDirectory: Identifiable, Hashable, Sendable {
@@ -28,7 +29,7 @@ public actor SourceDirectoryStore {
 
     public init(
         suiteName: String? = nil,
-        storageKey: String = "sourceDirectoryBookmarks"
+        storageKey: String = SourceEnrollmentSettings.bookmarkStorageKey
     ) {
         if let suiteName {
             defaults = UserDefaults(suiteName: suiteName) ?? .standard

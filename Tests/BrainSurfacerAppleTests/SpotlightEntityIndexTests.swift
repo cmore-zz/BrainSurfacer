@@ -146,6 +146,49 @@ func editorRequestsPreserveTheBestAvailableSourceAnchor() throws {
 }
 
 @Test
+func securityScopedAccessSelectsTheMostSpecificEnclosingSource() {
+    let broadRoot = URL(fileURLWithPath: "/Users/example/Notes")
+    let nestedRoot = URL(fileURLWithPath: "/Users/example/Notes/Projects")
+    let lookalikeRoot = URL(fileURLWithPath: "/Users/example/Notebook")
+    let document = URL(
+        fileURLWithPath: "/Users/example/Notes/Projects/Launch/Plan.md"
+    )
+
+    let root = SecurityScopedBookmarkDocumentAccess.enclosingRoot(
+        for: document,
+        among: [broadRoot, lookalikeRoot, nestedRoot]
+    )
+
+    #expect(root == nestedRoot)
+    #expect(
+        SecurityScopedBookmarkDocumentAccess.enclosingRoot(
+            for: URL(fileURLWithPath: "/Users/example/Notes-old/Plan.md"),
+            among: [broadRoot]
+        ) == nil
+    )
+}
+
+@Test
+func configuredOpenerChecksTheSourceInsideItsAccessLease() async throws {
+    let source = URL(
+        fileURLWithPath: "/missing/\(UUID().uuidString)/Document.md"
+    )
+    let entity = KnowledgeEntity(
+        id: EntityID(rawValue: "leased"),
+        kind: .note,
+        title: "Leased",
+        source: SourceAnchor(fileURL: source)
+    )
+    let access = RecordingDocumentAccessProvider()
+    let opener = ConfiguredDocumentOpener(accessProvider: access)
+
+    await #expect(throws: DocumentOpeningFailure.self) {
+        try await opener.open(entity)
+    }
+    #expect(await access.requestedURLs == [source])
+}
+
+@Test
 func spotlightEntityQueriesResolveOnlyTheirProjectionKinds() async throws {
     let source = URL(fileURLWithPath: "/notes/query.md")
     let ordinary = KnowledgeEntity(
@@ -260,4 +303,16 @@ func appIntentQueriesHaveDistinctPersistentIdentifiers() {
     ]
 
     #expect(Set(identifiers).count == identifiers.count)
+}
+
+private actor RecordingDocumentAccessProvider: DocumentAccessProvider {
+    private(set) var requestedURLs: [URL] = []
+
+    func performWithAccess(
+        to documentURL: URL,
+        operation: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        requestedURLs.append(documentURL)
+        try await operation()
+    }
 }

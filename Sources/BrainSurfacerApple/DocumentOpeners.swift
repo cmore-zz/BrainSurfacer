@@ -27,7 +27,6 @@ public enum DocumentOpeningSettings {
 public enum DocumentOpeningFailure: LocalizedError, Sendable {
     case missingSource(URL)
     case applicationUnavailable(String)
-    case openRejected(URL)
 
     public var errorDescription: String? {
         switch self {
@@ -35,9 +34,75 @@ public enum DocumentOpeningFailure: LocalizedError, Sendable {
             "The source file no longer exists at \(url.path(percentEncoded: false))."
         case let .applicationUnavailable(name):
             "\(name) is not installed or its application location is no longer valid."
-        case let .openRejected(url):
-            "macOS could not open \(url.lastPathComponent)."
         }
+    }
+}
+
+public struct SecurityScopedBookmarkDocumentAccess: DocumentAccessProvider {
+    private let suiteName: String?
+
+    public init(suiteName: String? = nil) {
+        self.suiteName = suiteName
+    }
+
+    public func performWithAccess(
+        to documentURL: URL,
+        operation: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        let suiteName = self.suiteName
+        let bookmarks: [Data] = await MainActor.run {
+            let defaults = suiteName.flatMap(UserDefaults.init(suiteName:))
+                ?? .standard
+            return defaults.array(
+                forKey: SourceEnrollmentSettings.bookmarkStorageKey
+            ) as? [Data] ?? []
+        }
+        let roots = bookmarks.compactMap(Self.resolveBookmark)
+
+        guard let root = Self.enclosingRoot(
+            for: documentURL,
+            among: roots
+        ) else {
+            // Files inside the app container and other unrestricted locations
+            // do not need an enrollment bookmark.
+            try await operation()
+            return
+        }
+
+        let didStartAccess = root.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccess {
+                root.stopAccessingSecurityScopedResource()
+            }
+        }
+        try await operation()
+    }
+
+    static func enclosingRoot(for documentURL: URL, among roots: [URL]) -> URL? {
+        let documentComponents = documentURL.standardizedFileURL.pathComponents
+        return roots
+            .map(\.standardizedFileURL)
+            .filter { root in
+                let rootComponents = root.pathComponents
+                guard rootComponents.count <= documentComponents.count else {
+                    return false
+                }
+                return documentComponents.prefix(rootComponents.count)
+                    .elementsEqual(rootComponents)
+            }
+            .max { first, second in
+                first.pathComponents.count < second.pathComponents.count
+            }
+    }
+
+    private static func resolveBookmark(_ bookmark: Data) -> URL? {
+        var isStale = false
+        return try? URL(
+            resolvingBookmarkData: bookmark,
+            options: [.withSecurityScope, .withoutUI],
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        )
     }
 }
 
@@ -45,18 +110,19 @@ public enum DocumentOpeningFailure: LocalizedError, Sendable {
 /// App Intents and the running app always use the same routing policy.
 public struct ConfiguredDocumentOpener: DocumentOpener {
     public let id = "configured-macos-opener"
+    private let accessProvider: any DocumentAccessProvider
 
-    public init() {}
+    public init(
+        accessProvider: any DocumentAccessProvider = SecurityScopedBookmarkDocumentAccess()
+    ) {
+        self.accessProvider = accessProvider
+    }
 
     public func canOpen(_ entity: KnowledgeEntity) async -> Bool {
-        FileManager.default.fileExists(atPath: entity.source.fileURL.path)
+        entity.source.fileURL.isFileURL
     }
 
     public func open(_ entity: KnowledgeEntity) async throws {
-        guard await canOpen(entity) else {
-            throw DocumentOpeningFailure.missingSource(entity.source.fileURL)
-        }
-
         let settings = await MainActor.run {
             let defaults = UserDefaults.standard
             return (
@@ -69,22 +135,34 @@ public struct ConfiguredDocumentOpener: DocumentOpener {
             )
         }
 
-        do {
-            switch settings.0 {
-            case .systemDefault:
-                try await Self.openWithSystemDefault(entity.source.fileURL)
-            case .obsidian:
-                guard let url = Self.obsidianURL(for: entity) else {
-                    throw DocumentOpeningFailure.applicationUnavailable("Obsidian")
-                }
-                try await Self.openWithSystemDefault(url)
-            case .emacs:
-                try await Self.openWithEmacs(entity, configuredPath: settings.1)
+        try await accessProvider.performWithAccess(
+            to: entity.source.fileURL
+        ) {
+            guard FileManager.default.fileExists(
+                atPath: entity.source.fileURL.path
+            ) else {
+                throw DocumentOpeningFailure.missingSource(
+                    entity.source.fileURL
+                )
             }
-        } catch where settings.0 != .systemDefault {
-            // A stale editor preference must never turn a valid Spotlight hit
-            // into a dead end.
-            try await Self.openWithSystemDefault(entity.source.fileURL)
+
+            do {
+                switch settings.0 {
+                case .systemDefault:
+                    try await Self.openWithSystemDefault(entity.source.fileURL)
+                case .obsidian:
+                    guard let url = Self.obsidianURL(for: entity) else {
+                        throw DocumentOpeningFailure.applicationUnavailable("Obsidian")
+                    }
+                    try await Self.openWithSystemDefault(url)
+                case .emacs:
+                    try await Self.openWithEmacs(entity, configuredPath: settings.1)
+                }
+            } catch where settings.0 != .systemDefault {
+                // A stale editor preference must never turn a valid Spotlight
+                // hit into a dead end.
+                try await Self.openWithSystemDefault(entity.source.fileURL)
+            }
         }
     }
 
@@ -116,7 +194,7 @@ public struct ConfiguredDocumentOpener: DocumentOpener {
     @MainActor
     private static func openWithSystemDefault(_ url: URL) async throws {
         guard NSWorkspace.shared.open(url) else {
-            throw DocumentOpeningFailure.openRejected(url)
+            throw WorkspaceRejectedOpening(url: url)
         }
     }
 
@@ -143,5 +221,14 @@ public struct ConfiguredDocumentOpener: DocumentOpener {
             withApplicationAt: applicationURL,
             configuration: configuration
         )
+    }
+}
+
+private struct WorkspaceRejectedOpening: LocalizedError,
+    UserPresentedDocumentOpeningError {
+    let url: URL
+
+    var errorDescription: String? {
+        "macOS could not open \(url.lastPathComponent)."
     }
 }

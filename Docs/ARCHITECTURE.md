@@ -33,7 +33,7 @@ makes four distinctions explicit:
 ```text
 BrainSurfacerApp
     ├── BrainSurfacerCore ──> BrainSurfacerModel
-    ├── BrainSurfacerFilesystem ──> BrainSurfacerModel
+    ├── BrainSurfacerFilesystem ──> BrainSurfacerCore ──> BrainSurfacerModel
     └── BrainSurfacerApple ──> BrainSurfacerCore ──> BrainSurfacerModel
 ```
 
@@ -169,9 +169,14 @@ reconciliation follow moves and renames.
 The configured macOS opener routes to the file's default application, an
 Obsidian URI with the closest Markdown heading, or Emacs.app arguments with the
 closest line and column. A failed or stale editor preference falls back to the
-system default. The system `ShowInAppSearchResultsIntent` persists its term long
-enough for app launch and presents the same Spotlight-backed Index search UI;
-an in-process notification handles an already-running app.
+system default. Before checking or dispatching a source file, the opener
+resolves the saved bookmark for the most-specific enrolled parent directory and
+holds its security-scoped access for the complete operation. This makes the
+same sandbox permission available to UI and App Intent opens without keeping
+source roots permanently active. The system `ShowInAppSearchResultsIntent`
+persists its term long enough for app launch and presents the same
+Spotlight-backed Index search UI; an in-process notification handles an
+already-running app.
 
 The macOS 27 `IndexedEntityQuery` adapters resolve identifiers from the durable
 catalog. They handle partial reindex requests by restoring known entities and

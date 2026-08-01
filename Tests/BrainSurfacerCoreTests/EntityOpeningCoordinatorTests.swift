@@ -63,6 +63,27 @@ func openingReportsMissingEntitiesAndUnsupportedSources() async throws {
     }
 }
 
+@Test
+func openingDistinguishesFailuresAlreadyPresentedToTheUser() async throws {
+    let source = URL(fileURLWithPath: "/tmp/Presented.md")
+    let entity = KnowledgeEntity(
+        id: EntityID(rawValue: "presented"),
+        kind: .note,
+        title: "Presented",
+        source: SourceAnchor(fileURL: source)
+    )
+    let catalog = InMemoryEntityCatalog()
+    _ = await catalog.replaceEntities(from: source, with: [entity])
+    let coordinator = EntityOpeningCoordinator(
+        catalog: catalog,
+        openers: [PresentedFailingDocumentOpener()]
+    )
+
+    await #expect(throws: EntityOpeningError.failureAlreadyPresented(source)) {
+        try await coordinator.open(.entityID(entity.id))
+    }
+}
+
 private struct OpeningFailure: LocalizedError, Sendable {
     var errorDescription: String? { "preferred editor failed" }
 }
@@ -92,5 +113,20 @@ private actor RecordingDocumentOpener: DocumentOpener {
         if shouldFail {
             throw OpeningFailure()
         }
+    }
+}
+
+private struct PresentedOpeningFailure: LocalizedError,
+    UserPresentedDocumentOpeningError {
+    var errorDescription: String? { "Already shown" }
+}
+
+private struct PresentedFailingDocumentOpener: DocumentOpener {
+    let id = "presented-failure"
+
+    func canOpen(_ entity: KnowledgeEntity) async -> Bool { true }
+
+    func open(_ entity: KnowledgeEntity) async throws {
+        throw PresentedOpeningFailure()
     }
 }

@@ -21,7 +21,7 @@ let package = Package(
         ),
         .target(
             name: "BrainSurfacerFilesystem",
-            dependencies: ["BrainSurfacerModel"]
+            dependencies: ["BrainSurfacerCore", "BrainSurfacerModel"]
         ),
         .target(
             name: "BrainSurfacerApple",

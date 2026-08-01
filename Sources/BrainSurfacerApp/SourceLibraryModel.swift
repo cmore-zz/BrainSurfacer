@@ -243,6 +243,8 @@ final class SourceLibraryModel {
         Task {
             do {
                 try await openingCoordinator.open(reference)
+            } catch EntityOpeningError.failureAlreadyPresented(_) {
+                // NSWorkspace has already shown the actionable system dialog.
             } catch {
                 errorMessage = error.localizedDescription
             }

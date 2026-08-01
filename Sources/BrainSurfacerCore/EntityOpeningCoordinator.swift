@@ -5,6 +5,7 @@ public enum EntityOpeningError: LocalizedError, Equatable, Sendable {
     case entityNotFound
     case noCompatibleOpener(URL)
     case allOpenersFailed(URL, String)
+    case failureAlreadyPresented(URL)
 
     public var errorDescription: String? {
         switch self {
@@ -14,6 +15,8 @@ public enum EntityOpeningError: LocalizedError, Equatable, Sendable {
             "No configured application can open \(url.path(percentEncoded: false))."
         case let .allOpenersFailed(url, message):
             "Couldn’t open \(url.lastPathComponent): \(message)"
+        case let .failureAlreadyPresented(url):
+            "macOS could not open \(url.lastPathComponent)."
         }
     }
 }
@@ -37,16 +40,23 @@ public struct EntityOpeningCoordinator: Sendable {
         }
 
         var lastFailureDescription: String?
+        var wasLastFailurePresented = false
         for opener in openers where await opener.canOpen(entity) {
             do {
                 try await opener.open(entity)
                 return entity
             } catch {
                 lastFailureDescription = error.localizedDescription
+                wasLastFailurePresented = error is any UserPresentedDocumentOpeningError
             }
         }
 
         if let lastFailureDescription {
+            if wasLastFailurePresented {
+                throw EntityOpeningError.failureAlreadyPresented(
+                    entity.source.fileURL
+                )
+            }
             throw EntityOpeningError.allOpenersFailed(
                 entity.source.fileURL,
                 lastFailureDescription
