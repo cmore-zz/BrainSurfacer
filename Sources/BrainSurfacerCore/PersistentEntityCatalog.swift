@@ -83,6 +83,7 @@ public actor PersistentEntityCatalog: EntityCatalog {
     public func markFullRebuildCompleted() async throws {
         try requireCoordinatingWriter()
         try reload()
+        pendingChanges = []
         fullRebuildRequired = false
         try persist()
     }

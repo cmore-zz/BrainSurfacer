@@ -32,6 +32,15 @@ func replacingSourceRemovesStaleEntities() async throws {
     #expect(changes[1].upserts.map(\.id) == [second.id])
 }
 
+@Test
+func permanentIndexesWithoutResetCapabilityFailExplicitly() async {
+    let index = ApplyOnlyIndex()
+
+    await #expect(throws: PermanentEntityIndexError.fullResetUnsupported) {
+        try await index.reset()
+    }
+}
+
 private actor RecordingIndex: PermanentEntityIndex {
     private(set) var changes: [EntityIndexChange] = []
 
@@ -40,4 +49,8 @@ private actor RecordingIndex: PermanentEntityIndex {
     }
 
     func reset() {}
+}
+
+private actor ApplyOnlyIndex: PermanentEntityIndex {
+    func apply(_ change: EntityIndexChange) {}
 }

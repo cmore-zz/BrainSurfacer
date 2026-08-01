@@ -32,6 +32,23 @@ public protocol PermanentEntityIndex: Sendable {
     func reset() async throws
 }
 
+public enum PermanentEntityIndexError: LocalizedError, Sendable, Equatable {
+    case fullResetUnsupported
+
+    public var errorDescription: String? {
+        switch self {
+        case .fullResetUnsupported:
+            "This permanent entity index does not support a full reset."
+        }
+    }
+}
+
+public extension PermanentEntityIndex {
+    func reset() async throws {
+        throw PermanentEntityIndexError.fullResetUnsupported
+    }
+}
+
 public protocol EntityCatalog: Sendable {
     func replaceEntities(
         from source: URL,

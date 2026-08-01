@@ -18,7 +18,7 @@ public actor IndexingCoordinator {
         from source: URL,
         with entities: [KnowledgeEntity]
     ) async throws {
-        if try await prepareForReindex() == false {
+        if try await ensurePreparedForReindex() == false {
             try await replayPendingChangesAfterPreparation()
         }
         let pending = try await catalog.stageReplacement(from: source, with: entities)
@@ -26,7 +26,7 @@ public actor IndexingCoordinator {
     }
 
     public func replayPendingChanges() async throws {
-        guard try await prepareForReindex() == false else {
+        guard try await ensurePreparedForReindex() == false else {
             return
         }
         try await replayPendingChangesAfterPreparation()
@@ -41,11 +41,21 @@ public actor IndexingCoordinator {
 
     @discardableResult
     public func prepareForReindex() async throws -> Bool {
+        try await prepareForReindexIfNeeded(resetPreparedRebuild: true)
+    }
+
+    private func ensurePreparedForReindex() async throws -> Bool {
+        try await prepareForReindexIfNeeded(resetPreparedRebuild: false)
+    }
+
+    private func prepareForReindexIfNeeded(
+        resetPreparedRebuild: Bool
+    ) async throws -> Bool {
         guard try await catalog.requiresFullRebuild() else {
             didPrepareFullRebuild = false
             return false
         }
-        if !didPrepareFullRebuild {
+        if !didPrepareFullRebuild || resetPreparedRebuild {
             try await permanentIndex.reset()
             didPrepareFullRebuild = true
         }

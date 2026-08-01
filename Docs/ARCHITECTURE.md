@@ -87,7 +87,10 @@ the coordinating writer treats it as requiring a full rebuild; invalid bytes
 are also quarantined for diagnosis. The coordinator clears the permanent
 projection before rebuilding every enrolled source and only then clears the
 recovery marker. This prevents catalog recovery from leaving stale platform
-records behind.
+records behind. Completing that rebuild also discards pending mutations made
+obsolete by the reset and successful all-source projection.
+Permanent-index adapters that do not implement full reset support fail recovery
+explicitly instead of silently accepting a no-op reset.
 
 The app process owns the catalog's explicit coordinating-writer instance. App
 Entity queries use read-only instances: an invalid catalog produces an empty

@@ -101,6 +101,35 @@ func missingCatalogTriggersAWriterOwnedFullProjectionRebuild() async throws {
 }
 
 @Test
+func completedRebuildDiscardsPendingChangesFromFailedAttempts() async throws {
+    let fixture = try CatalogFixture()
+    defer { fixture.remove() }
+
+    let source = URL(fileURLWithPath: "/notes/rebuild-retry.md")
+    let obsolete = makePersistentEntity(id: "obsolete", source: source)
+    let current = makePersistentEntity(id: "current", source: source)
+    let catalog = writableCatalog(at: fixture.catalogURL)
+    let index = FailOnceRebuildIndex()
+    let coordinator = IndexingCoordinator(catalog: catalog, permanentIndex: index)
+
+    #expect(try await coordinator.prepareForReindex())
+    await #expect(throws: PersistentIndexFailure.self) {
+        try await coordinator.replaceEntities(from: source, with: [obsolete])
+    }
+    #expect(try await catalog.pendingIndexChanges().count == 1)
+
+    #expect(try await coordinator.prepareForReindex())
+    try await coordinator.replaceEntities(from: source, with: [current])
+    try await coordinator.completeFullRebuild()
+
+    #expect(await index.resetCount == 2)
+    #expect(await index.indexedIDs == [current.id])
+    #expect(try await catalog.pendingIndexChanges().isEmpty)
+    try await coordinator.replayPendingChanges()
+    #expect(await index.indexedIDs == [current.id])
+}
+
+@Test
 func corruptCatalogTriggersAFullProjectionRebuild() async throws {
     let fixture = try CatalogFixture()
     defer { fixture.remove() }
@@ -388,6 +417,26 @@ private actor RebuildRecordingIndex: PermanentEntityIndex {
     }
 
     func apply(_ change: EntityIndexChange) {
+        indexedIDs.subtract(change.removals)
+        indexedIDs.formUnion(change.upserts.map(\.id))
+    }
+
+    func reset() {
+        resetCount += 1
+        indexedIDs = []
+    }
+}
+
+private actor FailOnceRebuildIndex: PermanentEntityIndex {
+    private(set) var indexedIDs: Set<EntityID> = []
+    private(set) var resetCount = 0
+    private var shouldFail = true
+
+    func apply(_ change: EntityIndexChange) throws {
+        if shouldFail {
+            shouldFail = false
+            throw PersistentIndexFailure()
+        }
         indexedIDs.subtract(change.removals)
         indexedIDs.formUnion(change.upserts.map(\.id))
     }
