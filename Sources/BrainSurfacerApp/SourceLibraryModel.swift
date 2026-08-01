@@ -46,7 +46,8 @@ final class SourceLibraryModel {
         self.scanner = scanner
         self.entitySearch = entitySearch
         let catalog = PersistentEntityCatalog(
-            storageURL: PersistentEntityCatalog.defaultStorageURL()
+            storageURL: PersistentEntityCatalog.defaultStorageURL(),
+            accessMode: .coordinatingWriter
         )
         coordinator = IndexingCoordinator(
             catalog: catalog,
@@ -55,13 +56,7 @@ final class SourceLibraryModel {
         Task {
             sources = await store.load()
             isLoading = false
-            do {
-                try await coordinator.replayPendingChanges()
-                await reindexAll()
-            } catch {
-                errorMessage = "BrainSurfacer couldn’t recover its pending index "
-                    + "changes: \(error.localizedDescription)"
-            }
+            await reindexAll()
         }
     }
 
@@ -104,12 +99,43 @@ final class SourceLibraryModel {
     }
 
     func reindexAll() async {
+        let isFullRebuild: Bool
+        do {
+            isFullRebuild = try await coordinator.prepareForReindex()
+            if !isFullRebuild {
+                try await coordinator.replayPendingChanges()
+            }
+        } catch {
+            errorMessage = "BrainSurfacer couldn’t prepare its index: "
+                + error.localizedDescription
+            return
+        }
+
+        var allSourcesSucceeded = true
         for source in sources {
-            await reindex(source)
+            if await !reindex(source) {
+                allSourcesSucceeded = false
+            }
+        }
+
+        guard isFullRebuild else {
+            return
+        }
+        guard allSourcesSucceeded else {
+            errorMessage = "BrainSurfacer couldn’t finish rebuilding its index. "
+                + "The rebuild will be retried."
+            return
+        }
+        do {
+            try await coordinator.completeFullRebuild()
+        } catch {
+            errorMessage = "BrainSurfacer rebuilt its index but couldn’t record "
+                + "completion: \(error.localizedDescription)"
         }
     }
 
-    func reindex(_ source: SourceDirectory) async {
+    @discardableResult
+    func reindex(_ source: SourceDirectory) async -> Bool {
         indexStatusBySource[source.id, default: SourceIndexStatus()].state = .indexing
 
         do {
@@ -128,10 +154,12 @@ final class SourceLibraryModel {
                 diagnosticCount: result.diagnostics.count,
                 indexedAt: Date()
             )
+            return true
         } catch {
             var status = indexStatusBySource[source.id, default: SourceIndexStatus()]
             status.state = .failed(error.localizedDescription)
             indexStatusBySource[source.id] = status
+            return false
         }
     }
 

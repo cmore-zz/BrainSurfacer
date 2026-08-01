@@ -12,7 +12,7 @@ func persistentCatalogReconcilesStaleEntitiesAcrossRelaunch() async throws {
     let source = URL(fileURLWithPath: "/notes/brain.org")
     let first = makePersistentEntity(id: "first", source: source)
     let second = makePersistentEntity(id: "second", source: source)
-    let initialCatalog = PersistentEntityCatalog(storageURL: fixture.catalogURL)
+    let initialCatalog = writableCatalog(at: fixture.catalogURL)
     let initialCoordinator = IndexingCoordinator(
         catalog: initialCatalog,
         permanentIndex: SilentIndex()
@@ -23,7 +23,7 @@ func persistentCatalogReconcilesStaleEntitiesAcrossRelaunch() async throws {
         with: [first, second]
     )
 
-    let relaunchedCatalog = PersistentEntityCatalog(storageURL: fixture.catalogURL)
+    let relaunchedCatalog = writableCatalog(at: fixture.catalogURL)
     let recordingIndex = PersistentRecordingIndex()
     let relaunchedCoordinator = IndexingCoordinator(
         catalog: relaunchedCatalog,
@@ -45,7 +45,8 @@ func failedIndexMutationIsReplayedAndAcknowledgedAfterRelaunch() async throws {
 
     let source = URL(fileURLWithPath: "/notes/recovery.md")
     let entity = makePersistentEntity(id: "recovery", source: source)
-    let firstCatalog = PersistentEntityCatalog(storageURL: fixture.catalogURL)
+    let firstCatalog = writableCatalog(at: fixture.catalogURL)
+    try await firstCatalog.markFullRebuildCompleted()
     let failingCoordinator = IndexingCoordinator(
         catalog: firstCatalog,
         permanentIndex: AlwaysFailingIndex()
@@ -57,7 +58,7 @@ func failedIndexMutationIsReplayedAndAcknowledgedAfterRelaunch() async throws {
     let pendingAfterFailure = try await firstCatalog.pendingIndexChanges()
     #expect(pendingAfterFailure.count == 1)
 
-    let relaunchedCatalog = PersistentEntityCatalog(storageURL: fixture.catalogURL)
+    let relaunchedCatalog = writableCatalog(at: fixture.catalogURL)
     let recordingIndex = PersistentRecordingIndex()
     let recoveryCoordinator = IndexingCoordinator(
         catalog: relaunchedCatalog,
@@ -67,9 +68,201 @@ func failedIndexMutationIsReplayedAndAcknowledgedAfterRelaunch() async throws {
 
     let replayedChanges = await recordingIndex.changes
     #expect(replayedChanges.count == 1)
-    #expect(replayedChanges[0].upserts.map(\.id) == [entity.id])
+    let replayedChange = try #require(replayedChanges.first)
+    #expect(replayedChange.upserts.map(\.id) == [entity.id])
     let pendingAfterRecovery = try await relaunchedCatalog.pendingIndexChanges()
     #expect(pendingAfterRecovery.isEmpty)
+}
+
+@Test
+func missingCatalogTriggersAWriterOwnedFullProjectionRebuild() async throws {
+    let fixture = try CatalogFixture()
+    defer { fixture.remove() }
+
+    let staleID = EntityID(rawValue: "stale-without-catalog")
+    let catalog = writableCatalog(at: fixture.catalogURL)
+    let index = RebuildRecordingIndex(indexedIDs: [staleID])
+    let coordinator = IndexingCoordinator(catalog: catalog, permanentIndex: index)
+
+    #expect(try await coordinator.prepareForReindex())
+    #expect(await index.resetCount == 1)
+    #expect(await index.indexedIDs.isEmpty)
+    #expect(FileManager.default.fileExists(atPath: fixture.catalogURL.path) == false)
+
+    try await coordinator.completeFullRebuild()
+    #expect(FileManager.default.fileExists(atPath: fixture.catalogURL.path))
+    #expect(try await catalog.requiresFullRebuild() == false)
+
+    let reader = PersistentEntityCatalog(
+        storageURL: fixture.directoryURL.appendingPathComponent("missing-reader.json"),
+        accessMode: .readOnly
+    )
+    #expect(try await reader.requiresFullRebuild() == false)
+}
+
+@Test
+func completedRebuildDiscardsPendingChangesFromFailedAttempts() async throws {
+    let fixture = try CatalogFixture()
+    defer { fixture.remove() }
+
+    let source = URL(fileURLWithPath: "/notes/rebuild-retry.md")
+    let obsolete = makePersistentEntity(id: "obsolete", source: source)
+    let current = makePersistentEntity(id: "current", source: source)
+    let catalog = writableCatalog(at: fixture.catalogURL)
+    let index = FailOnceRebuildIndex()
+    let coordinator = IndexingCoordinator(catalog: catalog, permanentIndex: index)
+
+    #expect(try await coordinator.prepareForReindex())
+    await #expect(throws: PersistentIndexFailure.self) {
+        try await coordinator.replaceEntities(from: source, with: [obsolete])
+    }
+    #expect(try await catalog.pendingIndexChanges().count == 1)
+
+    #expect(try await coordinator.prepareForReindex())
+    try await coordinator.replaceEntities(from: source, with: [current])
+    try await coordinator.completeFullRebuild()
+
+    #expect(await index.resetCount == 2)
+    #expect(await index.indexedIDs == [current.id])
+    #expect(try await catalog.pendingIndexChanges().isEmpty)
+    try await coordinator.replayPendingChanges()
+    #expect(await index.indexedIDs == [current.id])
+}
+
+@Test
+func corruptCatalogTriggersAFullProjectionRebuild() async throws {
+    let fixture = try CatalogFixture()
+    defer { fixture.remove() }
+
+    let source = URL(fileURLWithPath: "/notes/recovered.md")
+    let stale = makePersistentEntity(id: "stale", source: source)
+    let initialCatalog = writableCatalog(at: fixture.catalogURL)
+    _ = try await initialCatalog.replaceEntities(from: source, with: [stale])
+    try Data("not valid json".utf8).write(to: fixture.catalogURL)
+
+    let recovered = makePersistentEntity(id: "recovered", source: source)
+    let catalog = writableCatalog(at: fixture.catalogURL)
+    let index = RebuildRecordingIndex(indexedIDs: [stale.id])
+    let coordinator = IndexingCoordinator(catalog: catalog, permanentIndex: index)
+
+    #expect(try await coordinator.prepareForReindex())
+    #expect(await index.resetCount == 1)
+    try await coordinator.replaceEntities(from: source, with: [recovered])
+    try await coordinator.completeFullRebuild()
+
+    #expect(await index.indexedIDs == [recovered.id])
+    #expect(try await catalog.requiresFullRebuild() == false)
+    #expect(try await catalog.allEntities().map(\.id) == [recovered.id])
+    let quarantinedFiles = try FileManager.default.contentsOfDirectory(
+        at: fixture.directoryURL,
+        includingPropertiesForKeys: nil
+    ).filter {
+        $0.lastPathComponent == "catalog.json.invalid"
+    }
+    #expect(quarantinedFiles.count == 1)
+    #expect(try Data(contentsOf: quarantinedFiles[0]) == Data("not valid json".utf8))
+
+    try Data("another invalid catalog".utf8).write(to: fixture.catalogURL)
+    #expect(try await catalog.requiresFullRebuild())
+    let boundedQuarantines = try FileManager.default.contentsOfDirectory(
+        at: fixture.directoryURL,
+        includingPropertiesForKeys: nil
+    ).filter {
+        $0.lastPathComponent == "catalog.json.invalid"
+    }
+    #expect(boundedQuarantines.count == 1)
+    #expect(
+        try Data(contentsOf: boundedQuarantines[0])
+            == Data("another invalid catalog".utf8)
+    )
+}
+
+@Test
+func incompatibleCatalogSchemaTriggersAFullProjectionRebuild() async throws {
+    let fixture = try CatalogFixture()
+    defer { fixture.remove() }
+
+    let source = URL(fileURLWithPath: "/notes/versioned.md")
+    let entity = makePersistentEntity(id: "versioned", source: source)
+    let initialCatalog = writableCatalog(at: fixture.catalogURL)
+    _ = try await initialCatalog.replaceEntities(from: source, with: [entity])
+    let data = try Data(contentsOf: fixture.catalogURL)
+    let currentJSON = try #require(String(data: data, encoding: .utf8))
+    let incompatibleJSON = currentJSON.replacingOccurrences(
+        of: "\"schemaVersion\":1",
+        with: "\"schemaVersion\":999"
+    )
+    #expect(incompatibleJSON != currentJSON)
+    try Data(incompatibleJSON.utf8).write(to: fixture.catalogURL)
+
+    let catalog = writableCatalog(at: fixture.catalogURL)
+    let index = RebuildRecordingIndex(indexedIDs: [entity.id])
+    let coordinator = IndexingCoordinator(catalog: catalog, permanentIndex: index)
+
+    #expect(try await coordinator.prepareForReindex())
+    #expect(await index.resetCount == 1)
+    #expect(await index.indexedIDs.isEmpty)
+    let rebuildRequired = try await catalog.requiresFullRebuild()
+    #expect(rebuildRequired)
+}
+
+@Test
+func readOnlyCatalogDoesNotMutateInvalidSharedState() async throws {
+    let fixture = try CatalogFixture()
+    defer { fixture.remove() }
+
+    let invalidData = Data("invalid reader snapshot".utf8)
+    try invalidData.write(to: fixture.catalogURL)
+    let catalog = PersistentEntityCatalog(
+        storageURL: fixture.catalogURL,
+        accessMode: .readOnly
+    )
+
+    #expect(try await catalog.allEntities().isEmpty)
+    #expect(try Data(contentsOf: fixture.catalogURL) == invalidData)
+    #expect(
+        FileManager.default.fileExists(
+            atPath: fixture.catalogURL.appendingPathExtension("invalid").path
+        ) == false
+    )
+    await #expect(throws: PersistentEntityCatalog.Error.readOnly) {
+        _ = try await catalog.replaceEntities(
+            from: URL(fileURLWithPath: "/notes"),
+            with: []
+        )
+    }
+}
+
+@Test
+func failedRecoveryPersistLeavesInvalidCatalogInPlaceForRetry() async throws {
+    let fixture = try CatalogFixture()
+    defer { fixture.remove() }
+
+    let invalidData = Data("invalid durable recovery".utf8)
+    try invalidData.write(to: fixture.catalogURL)
+    let catalog = writableCatalog(at: fixture.catalogURL)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o500],
+        ofItemAtPath: fixture.directoryURL.path
+    )
+    defer {
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: fixture.directoryURL.path
+        )
+    }
+
+    do {
+        _ = try await catalog.requiresFullRebuild()
+        Issue.record("Expected recovery persistence to fail in a read-only directory")
+    } catch {}
+    #expect(try Data(contentsOf: fixture.catalogURL) == invalidData)
+
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o700],
+        ofItemAtPath: fixture.directoryURL.path
+    )
+    #expect(try await catalog.requiresFullRebuild())
 }
 
 @Test
@@ -94,7 +287,7 @@ func structuralIdentitySurvivesDuplicateRenamesAndSourceRootMove() async throws 
             """
         )
     )
-    let catalog = PersistentEntityCatalog(storageURL: fixture.catalogURL)
+    let catalog = writableCatalog(at: fixture.catalogURL)
 
     let firstChange = try await catalog.replaceEntities(from: oldRoot, with: initial)
     let firstIdentifiers = Set(firstChange.upserts.map(\.id))
@@ -146,7 +339,7 @@ func localExplicitIdentitySurvivesSimultaneousRenameAndContentEdit() async throw
             contents: "# Alpha ^stable-anchor\nold body"
         )
     )
-    let catalog = PersistentEntityCatalog(storageURL: fixture.catalogURL)
+    let catalog = writableCatalog(at: fixture.catalogURL)
     let first = try await catalog.replaceEntities(from: root, with: initial)
     let firstHeadingID = try #require(first.upserts.first { $0.kind == .heading }?.id)
 
@@ -183,16 +376,26 @@ private struct CatalogFixture {
     }
 }
 
+private func writableCatalog(at storageURL: URL) -> PersistentEntityCatalog {
+    PersistentEntityCatalog(
+        storageURL: storageURL,
+        accessMode: .coordinatingWriter
+    )
+}
+
 private struct PersistentIndexFailure: Error {}
 
 private actor AlwaysFailingIndex: PermanentEntityIndex {
     func apply(_ change: EntityIndexChange) throws {
         throw PersistentIndexFailure()
     }
+
+    func reset() {}
 }
 
 private actor SilentIndex: PermanentEntityIndex {
     func apply(_ change: EntityIndexChange) {}
+    func reset() {}
 }
 
 private actor PersistentRecordingIndex: PermanentEntityIndex {
@@ -200,6 +403,47 @@ private actor PersistentRecordingIndex: PermanentEntityIndex {
 
     func apply(_ change: EntityIndexChange) {
         changes.append(change)
+    }
+
+    func reset() {}
+}
+
+private actor RebuildRecordingIndex: PermanentEntityIndex {
+    private(set) var indexedIDs: Set<EntityID>
+    private(set) var resetCount = 0
+
+    init(indexedIDs: Set<EntityID>) {
+        self.indexedIDs = indexedIDs
+    }
+
+    func apply(_ change: EntityIndexChange) {
+        indexedIDs.subtract(change.removals)
+        indexedIDs.formUnion(change.upserts.map(\.id))
+    }
+
+    func reset() {
+        resetCount += 1
+        indexedIDs = []
+    }
+}
+
+private actor FailOnceRebuildIndex: PermanentEntityIndex {
+    private(set) var indexedIDs: Set<EntityID> = []
+    private(set) var resetCount = 0
+    private var shouldFail = true
+
+    func apply(_ change: EntityIndexChange) throws {
+        if shouldFail {
+            shouldFail = false
+            throw PersistentIndexFailure()
+        }
+        indexedIDs.subtract(change.removals)
+        indexedIDs.formUnion(change.upserts.map(\.id))
+    }
+
+    func reset() {
+        resetCount += 1
+        indexedIDs = []
     }
 }
 

@@ -70,8 +70,8 @@ headings. It is not the production parser.
 Core coordinates source replacement as a single logical mutation:
 
 1. parse one changed source;
-2. stage that source's intended catalog state and durable index mutation;
-3. replay any older pending index mutations in order;
+2. replay any older pending index mutations in order;
+3. stage that source's intended catalog state and durable index mutation;
 4. upsert new/changed entities and remove stale identifiers;
 5. acknowledge the mutation only after the permanent index accepts it.
 
@@ -81,6 +81,24 @@ provider-local references, and pending index mutations across launches. A
 mutation is idempotent and remains pending after an adapter failure or process
 crash, so startup recovery can replay it without losing stale deletions. The
 in-memory catalog remains available for focused tests and transient tools.
+
+If the derived catalog is missing, unreadable, or has an incompatible schema,
+the coordinating writer treats it as requiring a full rebuild; invalid bytes
+are also quarantined for diagnosis. The coordinator clears the permanent
+projection before rebuilding every enrolled source and only then clears the
+recovery marker. This prevents catalog recovery from leaving stale platform
+records behind. Completing that rebuild also discards pending mutations made
+obsolete by the reset and successful all-source projection.
+Permanent-index adapters that do not implement full reset support fail recovery
+explicitly instead of silently accepting a no-op reset.
+
+The app process owns the catalog's explicit coordinating-writer instance. App
+Entity queries use read-only instances: an invalid catalog produces an empty
+in-memory snapshot without changing the shared file, leaving quarantine and
+rebuild initiation to the app. Atomic file replacement gives readers a complete
+old or new snapshot but is not multi-process writer coordination. Any extension
+or editor connector that writes catalog state must first add a file lock or move
+the catalog to a transactional store such as SQLite.
 
 Ports define the permanent index, entity search, context providers, contextual
 publishing, and document opening. No port mentions an Apple framework or

@@ -5,6 +5,9 @@ import BrainSurfacerModel
 import Foundation
 import UniformTypeIdentifiers
 
+// Tags, folders, and the source account are relationship values owned by indexed
+// notes. They intentionally resolve as AppEntity values without creating their
+// own independent Spotlight records.
 public struct SpotlightNoteTagEntity: AppEntity {
     public static let defaultQuery = Query()
     public static var typeDisplayRepresentation: TypeDisplayRepresentation {
@@ -30,7 +33,8 @@ public struct SpotlightNoteTagEntity: AppEntity {
 
         public init() {
             catalog = PersistentEntityCatalog(
-                storageURL: PersistentEntityCatalog.defaultStorageURL()
+                storageURL: PersistentEntityCatalog.defaultStorageURL(),
+                accessMode: .readOnly
             )
         }
 
@@ -111,7 +115,8 @@ public struct SpotlightNoteFolderEntity {
 
         public init() {
             catalog = PersistentEntityCatalog(
-                storageURL: PersistentEntityCatalog.defaultStorageURL()
+                storageURL: PersistentEntityCatalog.defaultStorageURL(),
+                accessMode: .readOnly
             )
         }
 
@@ -208,7 +213,8 @@ public struct SpotlightNoteEntity: IndexedEntity {
 
         public init() {
             catalog = PersistentEntityCatalog(
-                storageURL: PersistentEntityCatalog.defaultStorageURL()
+                storageURL: PersistentEntityCatalog.defaultStorageURL(),
+                accessMode: .readOnly
             )
         }
 

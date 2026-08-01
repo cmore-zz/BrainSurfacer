@@ -29,6 +29,24 @@ public struct PendingEntityIndexChange: Codable, Identifiable, Sendable, Equatab
 
 public protocol PermanentEntityIndex: Sendable {
     func apply(_ change: EntityIndexChange) async throws
+    func reset() async throws
+}
+
+public enum PermanentEntityIndexError: LocalizedError, Sendable, Equatable {
+    case fullResetUnsupported
+
+    public var errorDescription: String? {
+        switch self {
+        case .fullResetUnsupported:
+            "This permanent entity index does not support a full reset."
+        }
+    }
+}
+
+public extension PermanentEntityIndex {
+    func reset() async throws {
+        throw PermanentEntityIndexError.fullResetUnsupported
+    }
 }
 
 public protocol EntityCatalog: Sendable {
@@ -48,6 +66,8 @@ public protocol EntityCatalog: Sendable {
 
     func pendingIndexChanges() async throws -> [PendingEntityIndexChange]
     func acknowledgeIndexChange(identifiedBy identifier: UUID) async throws
+    func requiresFullRebuild() async throws -> Bool
+    func markFullRebuildCompleted() async throws
 }
 
 public extension EntityCatalog {
@@ -65,6 +85,12 @@ public extension EntityCatalog {
     }
 
     func acknowledgeIndexChange(identifiedBy identifier: UUID) async throws {}
+
+    func requiresFullRebuild() async throws -> Bool {
+        false
+    }
+
+    func markFullRebuildCompleted() async throws {}
 }
 
 public enum EntityReference: Codable, Hashable, Sendable {
