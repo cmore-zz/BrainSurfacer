@@ -41,20 +41,30 @@ func spotlightErrorDescriptionExplainsInvalidMetadata() {
 }
 
 @Test
-func spotlightProjectionScopesItemsToKnowledgeDomain() {
+func noteProjectionUsesNotesSchemaAndItsOwnSearchDomain() {
+    let modifiedAt = Date(timeIntervalSince1970: 1_725_000_000)
     let entity = KnowledgeEntity(
         id: EntityID(rawValue: "note"),
         kind: .note,
         title: "Note",
         body: "Searchable text",
-        source: SourceAnchor(fileURL: URL(fileURLWithPath: "/tmp/Note.md"))
+        tags: ["swift", "Work"],
+        source: SourceAnchor(fileURL: URL(fileURLWithPath: "/tmp/Notes/Note.md")),
+        modifiedAt: modifiedAt,
+        attributes: ["isPinned": "true"]
     )
 
-    let projection = SpotlightKnowledgeEntity(entity)
+    let projection = SpotlightNoteEntity(entity)
     let searchableItem = CSSearchableItem(appEntity: projection)
 
+    #expect(String(projection.name.characters) == "Note")
+    #expect(projection.content.map { String($0.characters) } == "Searchable text")
+    #expect(projection.tags.map(\.name) == ["Work", "swift"])
+    #expect(projection.isPinned)
+    #expect(projection.modificationDate == modifiedAt)
+    #expect(projection.folder?.name == "Notes")
     #expect(projection.attributeSet.textContent == "Searchable text")
-    #expect(searchableItem.domainIdentifier == SpotlightKnowledgeEntity.searchDomainIdentifier)
+    #expect(searchableItem.domainIdentifier == SpotlightNoteEntity.searchDomainIdentifier)
 }
 
 @Test
@@ -78,7 +88,7 @@ func spotlightSearchResultPreservesDisplayMetadata() {
 }
 
 @Test
-func spotlightEntityQueryResolvesDurableAndHashedIdentifiers() async throws {
+func spotlightEntityQueriesResolveOnlyTheirProjectionKinds() async throws {
     let source = URL(fileURLWithPath: "/notes/query.md")
     let ordinary = KnowledgeEntity(
         id: EntityID(rawValue: "ordinary"),
@@ -96,11 +106,100 @@ func spotlightEntityQueryResolvesDurableAndHashedIdentifiers() async throws {
     _ = await catalog.replaceEntities(from: source, with: [ordinary, oversized])
     let ordinaryID = SpotlightKnowledgeEntity.indexIdentifier(for: ordinary.id)
     let oversizedID = SpotlightKnowledgeEntity.indexIdentifier(for: oversized.id)
-    let query = SpotlightKnowledgeEntity.Query(catalog: catalog)
+    let customQuery = SpotlightKnowledgeEntity.Query(catalog: catalog)
+    let noteQuery = SpotlightNoteEntity.Query(catalog: catalog)
 
-    let entities = try await query.entities(
+    let customEntities = try await customQuery.entities(
+        for: [oversizedID, "missing", ordinaryID]
+    )
+    let noteEntities = try await noteQuery.entities(
         for: [oversizedID, "missing", ordinaryID]
     )
 
-    #expect(entities.map(\.id) == [oversizedID, ordinaryID])
+    #expect(customEntities.map(\.id) == [oversizedID])
+    #expect(noteEntities.map(\.id) == [ordinaryID])
+}
+
+@Test
+func taskProjectionRemainsCustomUntilReminderSemanticsExist() {
+    let task = KnowledgeEntity(
+        id: EntityID(rawValue: "task"),
+        kind: .task,
+        title: "Ship slice three",
+        source: SourceAnchor(fileURL: URL(fileURLWithPath: "/tmp/Plan.org")),
+        attributes: ["taskState": "TODO"]
+    )
+
+    #expect(SpotlightProjection.kind(for: task) == .custom)
+    #expect(SpotlightKnowledgeEntity(task).subtitle == "Task")
+}
+
+@Test
+func nestedTagAndFolderQueriesResolveFromTheCatalog() async throws {
+    let source = URL(fileURLWithPath: "/notes/Projects/Plan.md")
+    let note = KnowledgeEntity(
+        id: EntityID(rawValue: "note"),
+        kind: .note,
+        title: "Plan",
+        tags: ["swift", "architecture"],
+        source: SourceAnchor(fileURL: source)
+    )
+    let catalog = InMemoryEntityCatalog()
+    _ = await catalog.replaceEntities(from: source, with: [note])
+    let swiftTag = SpotlightNoteTagEntity(name: "swift")
+    let folder = SpotlightNoteFolderEntity(
+        directoryURL: source.deletingLastPathComponent()
+    )
+
+    let tags = try await SpotlightNoteTagEntity.Query(catalog: catalog).entities(
+        for: [swiftTag.id]
+    )
+    let folders = try await SpotlightNoteFolderEntity.Query(catalog: catalog).entities(
+        for: [folder.id]
+    )
+
+    #expect(tags.map(\.name) == ["swift"])
+    #expect(folders.map(\.name) == ["Projects"])
+    #expect(folders.first?.account?.name == "BrainSurfacer Sources")
+}
+
+@Test
+func projectionVersionIsPersistedForControlledRebuilds() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("BrainSurfacerProjectionTests-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = SpotlightProjectionVersionStore(
+        storageURL: directory.appendingPathComponent("version")
+    )
+
+    #expect(store.storedVersion() == nil)
+    try store.markCurrent(version: SpotlightProjection.schemaVersion)
+    #expect(store.storedVersion() == SpotlightProjection.schemaVersion)
+}
+
+@Test
+func spotlightSearchIncludesCustomAndNotesProjectionDomains() {
+    #expect(
+        SpotlightEntitySearch.searchDomainFilter.contains(
+            SpotlightKnowledgeEntity.searchDomainIdentifier
+        )
+    )
+    #expect(
+        SpotlightEntitySearch.searchDomainFilter.contains(
+            SpotlightNoteEntity.searchDomainIdentifier
+        )
+    )
+}
+
+@Test
+func appIntentQueriesHaveDistinctPersistentIdentifiers() {
+    let identifiers = [
+        SpotlightKnowledgeEntity.Query.persistentIdentifier,
+        SpotlightNoteEntity.Query.persistentIdentifier,
+        SpotlightNoteTagEntity.Query.persistentIdentifier,
+        SpotlightNoteFolderEntity.Query.persistentIdentifier,
+        SpotlightNoteAccountEntity.Query.persistentIdentifier
+    ]
+
+    #expect(Set(identifiers).count == identifiers.count)
 }

@@ -95,19 +95,41 @@ signals while parsing catches up, and removes expired or disconnected state.
 
 ### Apple platform
 
-The initial Apple adapter projects a `KnowledgeEntity` into an `IndexedEntity`
-and calls `CSSearchableIndex.indexAppEntities`. It can be replaced by multiple
-schema-specific entity projections later.
+The Apple adapter routes canonical entities into separate platform projections.
+Documents use the macOS 27 Notes `note` schema, with schema-defined properties
+for rich name/content, attachments, tags, pin state, dates, and containing
+folder. Containing folders and the BrainSurfacer source account use the Notes
+`folder` and `account` schemas. Tags are custom App Entities supplied through
+the schema-defined `Note.tags` relationship because the current SDK advertises
+but does not successfully expand the `notes.tag` schema macro.
+
+Headings and other concepts retain an honest custom `IndexedEntity` projection.
+Tasks do too: the semantic model currently lacks the list, due/recurrence,
+completion, subtask, flag, and trigger semantics required by the Reminders
+schema. A TODO keyword alone is not treated as proof of Reminders semantics.
+
+Schema properties use App Entity `Property` or `ComputedProperty` metadata and
+bind structured values to Spotlight indexing keys. Raw
+`CSSearchableItemAttributeSet` fields mirror the minimum display, full-text, and
+source metadata needed for reliable search and opening; they are no longer the
+sole carrier of structured semantics.
+
+Projection schema version `2` is persisted separately from the disposable
+catalog. A version change removes every custom and Notes App Entity before the
+first new mutation is accepted. Each upsert first removes its platform ID from
+both projection types, which also makes a note-to-custom type transition
+idempotent. Schema-specific `IndexedEntityQuery` implementations service partial
+and full Spotlight rebuild requests from the shared durable catalog.
 
 In-app search goes back through the `EntitySearch` port. The Apple adapter uses
 `CSUserQuery` for ranked lexical and semantic results and filters on a
 BrainSurfacer App Entity domain, so only opted-in knowledge donations are
 returned. Core and the UI do not construct Spotlight predicates.
 
-The macOS 27 `IndexedEntityQuery` adapter resolves identifiers from the durable
-catalog. It handles partial reindex requests by restoring known entities and
-deleting requested identifiers that no longer resolve; a full request rebuilds
-the BrainSurfacer entity type from the catalog. This remains a projection of the
+The macOS 27 `IndexedEntityQuery` adapters resolve identifiers from the durable
+catalog. They handle partial reindex requests by restoring known entities and
+deleting requested identifiers that no longer resolve; a full request replaces
+that projection type from the catalog. This remains a projection of the
 filesystem rather than a second source of truth.
 
 The SDK also adds `RelevantEntities`, but its public context surface is currently

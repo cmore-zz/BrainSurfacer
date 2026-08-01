@@ -39,11 +39,15 @@ reconciles canonical identity across ordinary edits, duplicate headings,
 renames, file moves, and uniquely identifiable source-root moves. Org IDs,
 CUSTOM_ID values, and Markdown block/attribute IDs are retained as preferred
 identity evidence. The App Entity query supports Spotlight-requested partial and
-full reindexing.
+full reindexing. Documents are projected with the macOS 27 Notes schema,
+including tag and containing-folder entities; entities without an honest schema
+match remain custom. Projection versions trigger a controlled Spotlight rebuild
+when their shape changes.
 The Index view queries donated entities through Spotlight’s ranked user-query
 API. The parser and Apple projection remain deliberate probes rather than final
-implementations: filesystem change observation, schema-aware entities, richer
-parsing, and editor connectors are still ahead.
+implementations: filesystem change observation, richer parsing, and editor
+connectors are still ahead. SDK-specific findings are recorded in
+[Platform probes](Docs/PLATFORM_PROBES.md).
 
 ## Build
 

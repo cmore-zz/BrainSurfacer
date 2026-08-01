@@ -2,14 +2,11 @@ import AppIntents
 import BrainSurfacerCore
 import BrainSurfacerModel
 @preconcurrency import CoreSpotlight
-import CryptoKit
 import Foundation
 import UniformTypeIdentifiers
 
 public struct SpotlightKnowledgeEntity: IndexedEntity {
     public static let searchDomainIdentifier = "SpotlightKnowledgeEntity"
-
-    private static let maximumCanonicalIdentifierLength = 2_048
 
     public static var typeDisplayRepresentation: TypeDisplayRepresentation {
         "Knowledge Item"
@@ -18,20 +15,20 @@ public struct SpotlightKnowledgeEntity: IndexedEntity {
     public static let defaultQuery = Query()
 
     public var id: String
-    public var title: String
-    public var subtitle: String
-    public var text: String?
-    public var tags: [String]
-    public var sourceURL: URL
-    public var modifiedAt: Date?
+    @Property(indexingKey: \.displayName) public var title: String
+    @Property public var subtitle: String
+    @Property(indexingKey: \.textContent) public var text: String?
+    @Property(indexingKey: \.keywords) public var tags: [String]
+    @Property(indexingKey: \.contentURL) public var sourceURL: URL
+    @Property(indexingKey: \.contentModificationDate) public var modifiedAt: Date?
 
     public var displayRepresentation: DisplayRepresentation {
         DisplayRepresentation(title: "\(title)", subtitle: "\(subtitle)")
     }
 
     public var attributeSet: CSSearchableItemAttributeSet {
-        let attributes = CSSearchableItemAttributeSet(contentType: .content)
-        attributes.title = title
+        let attributes = defaultAttributeSet
+        attributes.contentType = UTType.content.identifier
         attributes.displayName = title
         attributes.contentDescription = text
         attributes.textContent = text
@@ -52,18 +49,12 @@ public struct SpotlightKnowledgeEntity: IndexedEntity {
     }
 
     static func indexIdentifier(for entityID: EntityID) -> String {
-        let canonicalIdentifier = entityID.rawValue
-        guard canonicalIdentifier.utf8.count > maximumCanonicalIdentifierLength else {
-            return canonicalIdentifier
-        }
-
-        let digest = SHA256.hash(data: Data(canonicalIdentifier.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
-        return "sha256:\(digest)"
+        SpotlightProjection.indexIdentifier(for: entityID)
     }
 
     public struct Query: IndexedEntityQuery {
+        public static let persistentIdentifier = "brainsurfacer.query.custom-knowledge.v1"
+
         private let catalog: any EntityCatalog
 
         public init() {
@@ -78,6 +69,7 @@ public struct SpotlightKnowledgeEntity: IndexedEntity {
 
         public func entities(for identifiers: [String]) async throws -> [SpotlightKnowledgeEntity] {
             let projections = try await catalog.allEntities()
+                .filter { SpotlightProjection.kind(for: $0) == .custom }
                 .map(SpotlightKnowledgeEntity.init)
             var projectionByID: [String: SpotlightKnowledgeEntity] = [:]
             for projection in projections {
@@ -112,7 +104,9 @@ public struct SpotlightKnowledgeEntity: IndexedEntity {
             indexDescription: CSSearchableIndexDescription
         ) async throws {
             let index = Self.index(for: indexDescription)
+            try await index.deleteAppEntities(ofType: SpotlightKnowledgeEntity.self)
             let entities = try await catalog.allEntities()
+                .filter { SpotlightProjection.kind(for: $0) == .custom }
                 .map(SpotlightKnowledgeEntity.init)
             if !entities.isEmpty {
                 try await index.indexAppEntities(entities)
@@ -157,21 +151,53 @@ public actor SpotlightEntityIndex: PermanentEntityIndex {
     public static let indexName = "BrainSurfacerKnowledge"
 
     private let index: CSSearchableIndex
+    private let projectionVersionStore: SpotlightProjectionVersionStore
+    private var didPrepareProjection = false
 
-    public init(index: CSSearchableIndex = CSSearchableIndex(name: indexName)) {
+    public init(
+        index: CSSearchableIndex = CSSearchableIndex(name: indexName),
+        projectionVersionURL: URL? = nil
+    ) {
         self.index = index
+        projectionVersionStore = SpotlightProjectionVersionStore(
+            storageURL: projectionVersionURL
+                ?? SpotlightProjectionVersionStore.defaultStorageURL()
+        )
     }
 
     public func apply(_ change: EntityIndexChange) async throws {
         do {
-            if !change.upserts.isEmpty {
-                try await index.indexAppEntities(change.upserts.map(SpotlightKnowledgeEntity.init))
+            try await prepareProjectionIfNeeded()
+
+            let projectedUpsertIdentifiers = change.upserts.map {
+                SpotlightProjection.indexIdentifier(for: $0.id)
             }
-            if !change.removals.isEmpty {
+            let identifiersToDelete = Set(projectedUpsertIdentifiers).union(
+                change.removals.map(SpotlightProjection.indexIdentifier)
+            )
+            if !identifiersToDelete.isEmpty {
+                let identifiers = Array(identifiersToDelete)
                 try await index.deleteAppEntities(
-                    identifiedBy: change.removals.map(SpotlightKnowledgeEntity.indexIdentifier),
+                    identifiedBy: identifiers,
                     ofType: SpotlightKnowledgeEntity.self
                 )
+                try await index.deleteAppEntities(
+                    identifiedBy: identifiers,
+                    ofType: SpotlightNoteEntity.self
+                )
+            }
+
+            let notes = change.upserts
+                .filter { SpotlightProjection.kind(for: $0) == .note }
+                .map(SpotlightNoteEntity.init)
+            let customEntities = change.upserts
+                .filter { SpotlightProjection.kind(for: $0) == .custom }
+                .map(SpotlightKnowledgeEntity.init)
+            if !notes.isEmpty {
+                try await index.indexAppEntities(notes)
+            }
+            if !customEntities.isEmpty {
+                try await index.indexAppEntities(customEntities)
             }
         } catch {
             let cocoaError = error as NSError
@@ -180,5 +206,19 @@ public actor SpotlightEntityIndex: PermanentEntityIndex {
             }
             throw SpotlightIndexingError(code: cocoaError.code)
         }
+    }
+
+    private func prepareProjectionIfNeeded() async throws {
+        guard !didPrepareProjection else {
+            return
+        }
+        if projectionVersionStore.storedVersion() != SpotlightProjection.schemaVersion {
+            try await index.deleteAppEntities(ofType: SpotlightKnowledgeEntity.self)
+            try await index.deleteAppEntities(ofType: SpotlightNoteEntity.self)
+            try projectionVersionStore.markCurrent(
+                version: SpotlightProjection.schemaVersion
+            )
+        }
+        didPrepareProjection = true
     }
 }

@@ -4,6 +4,9 @@ import Foundation
 
 public struct SpotlightEntitySearch: EntitySearch {
     private static let prepareOnce: Void = CSUserQuery.prepare()
+    static let searchDomainFilter =
+        "(domainIdentifier == \"\(SpotlightKnowledgeEntity.searchDomainIdentifier)\""
+        + " || domainIdentifier == \"\(SpotlightNoteEntity.searchDomainIdentifier)\")"
 
     public init() {
         _ = Self.prepareOnce
@@ -28,7 +31,7 @@ public struct SpotlightEntitySearch: EntitySearch {
             "domainIdentifier"
         ]
         context.filterQueries = [
-            "domainIdentifier == \"\(SpotlightKnowledgeEntity.searchDomainIdentifier)\""
+            Self.searchDomainFilter
         ]
 
         let query = CSUserQuery(

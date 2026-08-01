@@ -26,7 +26,7 @@ invariants.
 - Adopt `SyncableEntity` only after identifiers are demonstrably stable across
   devices.
 
-## 3. Schema-aware Apple projections
+## 3. Schema-aware Apple projections *(implemented)*
 
 - Project documents through the macOS 27 Notes schema where the semantics fit.
 - Add schema-aware tag and folder entities.
