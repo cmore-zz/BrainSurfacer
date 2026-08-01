@@ -166,6 +166,12 @@ identifier through `EntityOpeningCoordinator` before dispatch. This prevents a
 stale projected path from becoming a second identity system and lets catalog
 reconciliation follow moves and renames.
 
+Incoming custom-scheme URLs are untrusted navigation. Handlers accept only the
+fixed entity and search routes, never accept filesystem paths or commands, and
+resolve entity identifiers exclusively against the enrolled local catalog. An
+entity route may still open its resolved source in the configured external
+editor, while a search route only presents a query in BrainSurfacer.
+
 The configured macOS opener routes to the file's default application, an
 Obsidian URI with the closest Markdown heading, or Emacs.app arguments with the
 closest line and column. A failed or stale editor preference falls back to the

@@ -138,13 +138,7 @@ public struct ConfiguredDocumentOpener: DocumentOpener {
         try await accessProvider.performWithAccess(
             to: entity.source.fileURL
         ) {
-            guard FileManager.default.fileExists(
-                atPath: entity.source.fileURL.path
-            ) else {
-                throw DocumentOpeningFailure.missingSource(
-                    entity.source.fileURL
-                )
-            }
+            try Self.validateSourceIfMissing(entity.source.fileURL)
 
             do {
                 switch settings.0 {
@@ -191,9 +185,44 @@ public struct ConfiguredDocumentOpener: DocumentOpener {
         return arguments
     }
 
+    static func isMissingSourceError(_ error: any Error) -> Bool {
+        let cocoaError = error as NSError
+        guard cocoaError.domain == NSCocoaErrorDomain else {
+            return false
+        }
+        return cocoaError.code == CocoaError.Code.fileNoSuchFile.rawValue
+            || cocoaError.code == CocoaError.Code.fileReadNoSuchFile.rawValue
+    }
+
+    private static func validateSourceIfMissing(_ url: URL) throws {
+        do {
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+            guard values.isRegularFile == true else {
+                throw DocumentOpeningFailure.missingSource(url)
+            }
+        } catch let error as DocumentOpeningFailure {
+            throw error
+        } catch {
+            // A permission or transient filesystem error is not evidence that
+            // the source disappeared. Let NSWorkspace or the editor make the
+            // real open attempt and report its own actionable failure.
+            guard Self.isMissingSourceError(error) else {
+                return
+            }
+            throw DocumentOpeningFailure.missingSource(url)
+        }
+    }
+
     @MainActor
     private static func openWithSystemDefault(_ url: URL) async throws {
-        guard NSWorkspace.shared.open(url) else {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.promptsUserIfNeeded = true
+        do {
+            _ = try await NSWorkspace.shared.open(
+                url,
+                configuration: configuration
+            )
+        } catch {
             throw WorkspaceRejectedOpening(url: url)
         }
     }

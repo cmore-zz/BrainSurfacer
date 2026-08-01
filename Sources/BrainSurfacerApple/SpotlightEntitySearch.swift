@@ -78,7 +78,10 @@ public struct SpotlightEntitySearch: EntitySearch {
         } else {
             entityID = nil
         }
-        let sourceURL = attributes.path.map(URL.init(fileURLWithPath:))
+        let sourceURL = attributes.path.flatMap { path in
+            guard !path.isEmpty else { return nil }
+            return URL(fileURLWithPath: path)
+        }
             ?? attributes.contentURL.flatMap { $0.isFileURL ? $0 : nil }
         let title = attributes.title
             ?? attributes.displayName

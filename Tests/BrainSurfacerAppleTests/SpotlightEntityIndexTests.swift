@@ -116,6 +116,24 @@ func spotlightSearchResultPreservesDisplayMetadata() {
 }
 
 @Test
+func spotlightSearchIgnoresAnEmptySourcePath() {
+    let fallbackURL = URL(fileURLWithPath: "/tmp/Fallback.md")
+    let attributes = CSSearchableItemAttributeSet()
+    attributes.title = "Fallback"
+    attributes.path = ""
+    attributes.contentURL = fallbackURL
+    let item = CSSearchableItem(
+        uniqueIdentifier: "fallback-id",
+        domainIdentifier: SpotlightKnowledgeEntity.searchDomainIdentifier,
+        attributeSet: attributes
+    )
+
+    let result = SpotlightEntitySearch.result(from: item)
+
+    #expect(result.sourceURL == fallbackURL)
+}
+
+@Test
 func editorRequestsPreserveTheBestAvailableSourceAnchor() throws {
     let entity = KnowledgeEntity(
         id: EntityID(rawValue: "anchored"),
@@ -186,6 +204,21 @@ func configuredOpenerChecksTheSourceInsideItsAccessLease() async throws {
         try await opener.open(entity)
     }
     #expect(await access.requestedURLs == [source])
+}
+
+@Test
+func sourceValidationDoesNotConfusePermissionDenialWithDeletion() {
+    let missing = NSError(
+        domain: NSCocoaErrorDomain,
+        code: CocoaError.Code.fileReadNoSuchFile.rawValue
+    )
+    let denied = NSError(
+        domain: NSCocoaErrorDomain,
+        code: CocoaError.Code.fileReadNoPermission.rawValue
+    )
+
+    #expect(ConfiguredDocumentOpener.isMissingSourceError(missing))
+    #expect(!ConfiguredDocumentOpener.isMissingSourceError(denied))
 }
 
 @Test
