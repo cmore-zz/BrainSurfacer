@@ -254,6 +254,26 @@ func markdownExtractionRejectsAmbiguousOrInvalidMetadata() throws {
     #expect(!entities.contains { $0.title == "Not a CommonMark heading" })
 }
 
+@Test
+func documentMetadataExtractionStopsAtTheSearchableBodyBoundary() throws {
+    let retainedPrefix = String(
+        repeating: " ",
+        count: OutlineParser.maximumDocumentBodyBytes
+    )
+    let document = SourceDocument(
+        fileURL: URL(fileURLWithPath: "/tmp/Oversized.md"),
+        format: .markdown,
+        contents: retainedPrefix + "\nLate summary https://example.com/outside"
+    )
+
+    let note = try #require(OutlineParser().parse(document).first)
+
+    #expect(note.body?.utf8.count == OutlineParser.maximumDocumentBodyBytes)
+    #expect(note.attributes["bodyTruncated"] == "true")
+    #expect(note.summary == nil)
+    #expect(note.links.isEmpty)
+}
+
 private func fixture(
     named name: String,
     extension pathExtension: String,

@@ -33,9 +33,9 @@ public struct OutlineParser: Sendable {
                 title: documentMetadata.title
                     ?? document.fileURL.deletingPathExtension().lastPathComponent,
                 body: boundedDocument.value,
-                summary: summary(for: document.contents, format: document.format),
+                summary: summary(for: boundedDocument.value, format: document.format),
                 tags: documentMetadata.tags,
-                links: links(in: document.contents, format: document.format),
+                links: links(in: boundedDocument.value, format: document.format),
                 dates: documentMetadata.dates,
                 source: SourceAnchor(
                     fileURL: document.fileURL,
