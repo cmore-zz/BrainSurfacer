@@ -4,6 +4,7 @@ import Foundation
 
 public struct OutlineParser: Sendable {
     public static let maximumHeadingDepth = 32
+    public static let maximumMarkdownHeadingDepth = 6
     public static let maximumSectionBodyBytes = 64 * 1_024
     public static let maximumDocumentBodyBytes = 512 * 1_024
     public static let maximumSummaryCharacters = 240
@@ -138,6 +139,9 @@ public struct OutlineParser: Sendable {
                     title: cleanTitle,
                     body: boundedBody.value.isEmpty ? nil : boundedBody.value,
                     summary: summary(for: boundedBody.value, format: document.format),
+                    // File-level tags describe every contained section. This
+                    // mirrors Org FILETAGS inheritance and makes Markdown
+                    // front-matter topics available to section search.
                     tags: heading.tags.union(documentMetadata.tags),
                     links: links(in: sectionBody, format: document.format),
                     dates: dates(in: rawSection, format: document.format),
@@ -168,7 +172,10 @@ public struct OutlineParser: Sendable {
     ) -> ParsedHeading? {
         let marker: Character = format == .markdown ? "#" : "*"
         let level = line.prefix(while: { $0 == marker }).count
-        guard level > 0, level <= Self.maximumHeadingDepth else {
+        let maximumDepth = format == .markdown
+            ? Self.maximumMarkdownHeadingDepth
+            : Self.maximumHeadingDepth
+        guard level > 0, level <= maximumDepth else {
             return nil
         }
 
@@ -189,10 +196,11 @@ public struct OutlineParser: Sendable {
                 title = words.count > 1 ? words[1] : first
             }
 
-            if let tagRange = title.range(
-                of: #"\s+:(?:[[:alnum:]_@#%]+:)+$"#,
-                options: .regularExpression
-            ) {
+            let fullRange = NSRange(title.startIndex..., in: title)
+            if let match = Expressions.orgHeadingTags.firstMatch(
+                in: title,
+                range: fullRange
+            ), let tagRange = Range(match.range, in: title) {
                 let tagText = title[tagRange].trimmingCharacters(in: .whitespaces)
                 tags = Set(tagText.split(separator: ":").map(String.init))
                 title.removeSubrange(tagRange)
@@ -314,9 +322,9 @@ public struct OutlineParser: Sendable {
     }
 
     private func isValidExplicitIdentifier(_ identifier: String) -> Bool {
-        identifier.range(
-            of: #"^[[:alnum:]][[:alnum:]_.:-]*$"#,
-            options: .regularExpression
+        Expressions.explicitIdentifier.firstMatch(
+            in: identifier,
+            range: NSRange(identifier.startIndex..., in: identifier)
         ) != nil
     }
 
@@ -431,9 +439,9 @@ public struct OutlineParser: Sendable {
     }
 
     private func isOrgPlanningLine(_ line: String) -> Bool {
-        line.range(
-            of: #"(?:^|\s)(?:SCHEDULED|DEADLINE|CLOSED):\s*[<\[]"#,
-            options: [.regularExpression, .caseInsensitive]
+        Expressions.orgPlanningLine.firstMatch(
+            in: line,
+            range: NSRange(line.startIndex..., in: line)
         ) != nil
     }
 
@@ -443,20 +451,21 @@ public struct OutlineParser: Sendable {
     ) -> DocumentMetadata {
         switch format {
         case .markdown:
-            guard lines.first?.text.trimmingCharacters(in: .whitespaces) == "---" else {
+            guard lines.first?.text.trimmingCharacters(in: .whitespaces) == "---",
+                  let closingOffset = lines.dropFirst().firstIndex(where: {
+                      $0.text.trimmingCharacters(in: .whitespaces) == "---"
+                  }) else {
                 return DocumentMetadata()
             }
             var metadata = DocumentMetadata()
-            for line in lines.dropFirst() {
+            for line in lines[1 ..< closingOffset] {
                 let value = line.text.trimmingCharacters(in: .whitespaces)
-                if value == "---" {
-                    break
-                }
                 if let title = metadataValue(named: "title", in: value) {
                     metadata.title = title
                 } else if let tags = metadataValue(named: "tags", in: value) {
                     metadata.tags.formUnion(parseTags(tags))
-                } else if let date = metadataValue(named: "date", in: value) {
+                } else if let date = metadataValue(named: "date", in: value),
+                          isValidGregorianDate(date) {
                     metadata.dates.append(KnowledgeDate(kind: .mentioned, rawValue: date))
                 }
             }
@@ -505,24 +514,27 @@ public struct OutlineParser: Sendable {
         in text: String,
         format: SourceDocument.Format
     ) -> [URL] {
-        let patterns: [(String, Int)] = switch format {
+        let patterns: [(NSRegularExpression, Int, Bool)] = switch format {
         case .markdown:
             [
-                (#"\[[^\]]+\]\(([^\s\)]+)(?:\s+[^\)]*)?\)"#, 1),
-                (#"<(https?://[^>]+)>"#, 1),
-                (#"\b(https?://[^\s<>\)\]]+)"#, 1)
+                (Expressions.markdownLink, 1, false),
+                (Expressions.markdownAutolink, 1, false),
+                (Expressions.bareURL, 1, true)
             ]
         case .org:
             [
-                (#"\[\[([^\]]+)\](?:\[[^\]]*\])?\]"#, 1),
-                (#"\b(https?://[^\s<>\)\]]+)"#, 1)
+                (Expressions.orgLink, 1, false),
+                (Expressions.bareURL, 1, true)
             ]
         }
 
         var result: [URL] = []
         var seen: Set<String> = []
-        for (pattern, group) in patterns {
-            for value in captures(pattern: pattern, group: group, in: text) {
+        for (expression, group, trimsTrailingPunctuation) in patterns {
+            for captured in captures(expression: expression, group: group, in: text) {
+                let value = trimsTrailingPunctuation
+                    ? trimmingTrailingURLPunctuation(captured)
+                    : captured
                 guard let url = URL(string: value), seen.insert(url.absoluteString).inserted else {
                     continue
                 }
@@ -539,23 +551,33 @@ public struct OutlineParser: Sendable {
         let result: [KnowledgeDate]
         switch format {
         case .org:
-            result = captures(
-                pattern: #"\b(SCHEDULED|DEADLINE|CLOSED):\s*[<\[]([^>\]]+)[>\]]"#,
-                groups: [1, 2],
-                in: text
-            ).compactMap { values in
-                guard values.count == 2,
-                      let kind = KnowledgeDate.Kind(rawValue: values[0].lowercased()) else {
-                    return nil
+            result = text.split(separator: "\n").flatMap { sourceLine -> [KnowledgeDate] in
+                let line = sourceLine.trimmingCharacters(in: .whitespaces)
+                guard isOrgPlanningLine(line) else {
+                    return []
                 }
-                return KnowledgeDate(kind: kind, rawValue: values[1])
+                return captures(
+                    expression: Expressions.orgDate,
+                    groups: [1, 2],
+                    in: line
+                ).compactMap { values in
+                    guard values.count == 2,
+                          let kind = KnowledgeDate.Kind(
+                              rawValue: values[0].lowercased()
+                          ) else {
+                        return nil
+                    }
+                    return KnowledgeDate(kind: kind, rawValue: values[1])
+                }
             }
         case .markdown:
             result = captures(
-                pattern: #"\b\d{4}-\d{2}-\d{2}(?:[T ][0-9:.-]+(?:Z|[+-][0-9:]+)?)?\b"#,
+                expression: Expressions.markdownDate,
                 group: 0,
                 in: text
-            ).map { KnowledgeDate(kind: .mentioned, rawValue: $0) }
+            )
+            .filter(isValidGregorianDate)
+            .map { KnowledgeDate(kind: .mentioned, rawValue: $0) }
         }
         return result.reduce(into: []) { unique, value in
             if !unique.contains(value) {
@@ -570,39 +592,26 @@ public struct OutlineParser: Sendable {
     ) -> String? {
         var value = text
         value = replacing(
-            pattern: #"\[([^\]]+)\]\([^\)]+\)"#,
+            expression: Expressions.markdownLinkLabel,
             in: value,
             template: "$1"
         )
         value = replacing(
-            pattern: #"\[\[[^\]]+\]\[([^\]]+)\]\]"#,
+            expression: Expressions.orgLinkLabel,
             in: value,
             template: "$1"
         )
         value = replacing(
-            pattern: #"\[\[([^\]]+)\]\]"#,
+            expression: Expressions.orgPlainLink,
             in: value,
             template: "$1"
         )
 
         let candidates = value.split(separator: "\n", omittingEmptySubsequences: false)
             .map { line -> String in
-                var line = String(line).trimmingCharacters(in: .whitespaces)
+                let line = String(line).trimmingCharacters(in: .whitespaces)
                 if heading(in: line, format: format) != nil {
                     return ""
-                }
-                if format == .markdown {
-                    line = line.replacingOccurrences(
-                        of: #"^#{1,32}\s+"#,
-                        with: "",
-                        options: .regularExpression
-                    )
-                } else {
-                    line = line.replacingOccurrences(
-                        of: #"^\*{1,32}\s+(?:(?:TODO|DONE|NEXT|WAITING)\s+)?"#,
-                        with: "",
-                        options: [.regularExpression, .caseInsensitive]
-                    )
                 }
                 return line
             }
@@ -649,24 +658,18 @@ public struct OutlineParser: Sendable {
     }
 
     private func captures(
-        pattern: String,
+        expression: NSRegularExpression,
         group: Int,
         in text: String
     ) -> [String] {
-        captures(pattern: pattern, groups: [group], in: text).compactMap(\.first)
+        captures(expression: expression, groups: [group], in: text).compactMap(\.first)
     }
 
     private func captures(
-        pattern: String,
+        expression: NSRegularExpression,
         groups: [Int],
         in text: String
     ) -> [[String]] {
-        guard let expression = try? NSRegularExpression(
-            pattern: pattern,
-            options: [.caseInsensitive]
-        ) else {
-            return []
-        }
         let range = NSRange(text.startIndex..., in: text)
         return expression.matches(in: text, range: range).compactMap { match in
             let values = groups.compactMap { group -> String? in
@@ -681,22 +684,78 @@ public struct OutlineParser: Sendable {
     }
 
     private func replacing(
-        pattern: String,
+        expression: NSRegularExpression,
         in text: String,
         template: String
     ) -> String {
-        guard let expression = try? NSRegularExpression(pattern: pattern) else {
-            return text
-        }
         return expression.stringByReplacingMatches(
             in: text,
             range: NSRange(text.startIndex..., in: text),
             withTemplate: template
         )
     }
+
+    private func trimmingTrailingURLPunctuation(_ value: String) -> String {
+        var value = value
+        while let last = value.last, ".,;:!?".contains(last) {
+            value.removeLast()
+        }
+        return value
+    }
+
+    private func isValidGregorianDate(_ value: String) -> Bool {
+        let components = value.prefix(10).split(separator: "-").compactMap {
+            Int($0)
+        }
+        guard components.count == 3 else {
+            return false
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return DateComponents(
+            calendar: calendar,
+            year: components[0],
+            month: components[1],
+            day: components[2]
+        ).isValidDate
+    }
 }
 
 private extension OutlineParser {
+    enum Expressions {
+        static let orgHeadingTags = expression(#"\s+:(?:[[:alnum:]_@#%]+:)+$"#)
+        static let explicitIdentifier = expression(#"^[[:alnum:]][[:alnum:]_.:-]*$"#)
+        static let orgPlanningLine = expression(
+            #"^(?:SCHEDULED|DEADLINE|CLOSED):\s*[<\[]"#,
+            options: [.caseInsensitive]
+        )
+        static let markdownLink = expression(
+            #"\[[^\]]+\]\(([^\s\)]+)(?:\s+[^\)]*)?\)"#
+        )
+        static let markdownAutolink = expression(#"<(https?://[^>]+)>"#)
+        static let bareURL = expression(#"\b(https?://[^\s<>\)\]]+)"#)
+        static let orgLink = expression(#"\[\[([^\]]+)\](?:\[[^\]]*\])?\]"#)
+        static let orgDate = expression(
+            #"\b(SCHEDULED|DEADLINE|CLOSED):\s*[<\[]([^>\]]+)[>\]]"#,
+            options: [.caseInsensitive]
+        )
+        static let markdownDate = expression(
+            #"\b\d{4}-\d{2}-\d{2}(?:[T ][0-9:.-]+(?:Z|[+-][0-9:]+)?)?\b"#,
+            options: [.caseInsensitive]
+        )
+        static let markdownLinkLabel = expression(#"\[([^\]]+)\]\([^\)]+\)"#)
+        static let orgLinkLabel = expression(#"\[\[[^\]]+\]\[([^\]]+)\]\]"#)
+        static let orgPlainLink = expression(#"\[\[([^\]]+)\]\]"#)
+
+        private static func expression(
+            _ pattern: String,
+            options: NSRegularExpression.Options = []
+        ) -> NSRegularExpression {
+            // Every pattern is a source literal covered by parser tests.
+            try! NSRegularExpression(pattern: pattern, options: options)
+        }
+    }
+
     struct SourceLine {
         var text: String
         var startByteOffset: Int

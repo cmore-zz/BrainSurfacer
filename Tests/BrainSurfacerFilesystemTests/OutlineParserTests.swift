@@ -208,6 +208,52 @@ func entitiesFromOlderCatalogsDecodeWithEmptyDateMetadata() throws {
     #expect(decoded.dates.isEmpty)
 }
 
+@Test
+func orgPlanningMetadataMustStartItsLine() throws {
+    let document = SourceDocument(
+        fileURL: URL(fileURLWithPath: "/tmp/Planning.org"),
+        format: .org,
+        contents: """
+        * Commentary
+        The deployment was SCHEDULED: <2026-08-03 Mon> by the release group.
+        """
+    )
+
+    let section = try #require(
+        OutlineParser().parse(document).first { $0.title == "Commentary" }
+    )
+
+    #expect(section.body?.contains("The deployment was SCHEDULED") == true)
+    #expect(section.dates.isEmpty)
+}
+
+@Test
+func markdownExtractionRejectsAmbiguousOrInvalidMetadata() throws {
+    let document = SourceDocument(
+        fileURL: URL(fileURLWithPath: "/tmp/Extraction.md"),
+        format: .markdown,
+        contents: """
+        ---
+        tags: [not-front-matter]
+        # Edge cases
+        See https://example.com/docs.
+        Valid 2026-02-28; invalid 2026-02-30.
+        ####### Not a CommonMark heading
+        """
+    )
+
+    let entities = OutlineParser().parse(document)
+    let note = try #require(entities.first)
+    let section = try #require(entities.first { $0.title == "Edge cases" })
+
+    #expect(note.tags.isEmpty)
+    #expect(section.links == [URL(string: "https://example.com/docs")!])
+    #expect(section.dates == [
+        KnowledgeDate(kind: .mentioned, rawValue: "2026-02-28")
+    ])
+    #expect(!entities.contains { $0.title == "Not a CommonMark heading" })
+}
+
 private func fixture(
     named name: String,
     extension pathExtension: String,

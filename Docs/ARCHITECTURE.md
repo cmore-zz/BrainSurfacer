@@ -68,8 +68,10 @@ heading; child prose belongs to the child entity and is not duplicated into its
 ancestors. The source anchor separately spans the complete section subtree so
 an opener can select the closest meaningful source range. Searchable document
 and section bodies are UTF-8-safely bounded at 512 KiB and 64 KiB respectively,
-summaries are bounded at 240 characters, and heading nesting is bounded at 32
-levels. Truncation is explicit entity metadata. Org property drawers and
+summaries are bounded at 240 characters, Markdown heading depth follows
+CommonMark's six-level limit, and Org nesting is bounded at 32 levels.
+Truncation is explicit entity metadata. Document tags are inherited by section
+entities for search recall. Org property drawers and
 planning lines, and Markdown front matter, contribute identity, tags, or dates
 without polluting section prose. The representative parser corpus locks these
 policies down while broader syntax coverage remains future work.
