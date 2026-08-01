@@ -38,4 +38,6 @@ private actor RecordingIndex: PermanentEntityIndex {
     func apply(_ change: EntityIndexChange) {
         changes.append(change)
     }
+
+    func reset() {}
 }

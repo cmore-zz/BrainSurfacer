@@ -10,6 +10,7 @@ public actor PersistentEntityCatalog: EntityCatalog {
     private var identifiersBySource: [URL: Set<EntityID>] = [:]
     private var providerReferences: [ProviderReference: EntityID] = [:]
     private var pendingChanges: [PendingEntityIndexChange] = []
+    private var fullRebuildRequired = false
 
     public init(storageURL: URL) {
         self.storageURL = storageURL.standardizedFileURL
@@ -58,6 +59,17 @@ public actor PersistentEntityCatalog: EntityCatalog {
     public func acknowledgeIndexChange(identifiedBy identifier: UUID) async throws {
         try reload()
         pendingChanges.removeAll { $0.id == identifier }
+        try persist()
+    }
+
+    public func requiresFullRebuild() async throws -> Bool {
+        try reload()
+        return fullRebuildRequired
+    }
+
+    public func markFullRebuildCompleted() async throws {
+        try reload()
+        fullRebuildRequired = false
         try persist()
     }
 
@@ -176,36 +188,64 @@ public actor PersistentEntityCatalog: EntityCatalog {
 
     private func reload() throws {
         guard FileManager.default.fileExists(atPath: storageURL.path) else {
-            entitiesByID = [:]
-            identifiersBySource = [:]
-            providerReferences = [:]
-            pendingChanges = []
+            resetInMemory(fullRebuildRequired: false)
             return
         }
 
-        let data = try Data(contentsOf: storageURL)
-        let state = try JSONDecoder().decode(PersistedState.self, from: data)
-        guard state.schemaVersion == Self.currentSchemaVersion else {
-            throw Error.unsupportedSchemaVersion(state.schemaVersion)
+        let state: PersistedState
+        do {
+            let data = try Data(contentsOf: storageURL)
+            state = try JSONDecoder().decode(PersistedState.self, from: data)
+        } catch {
+            try recoverFromInvalidCatalog()
+            return
         }
+        guard state.schemaVersion == Self.currentSchemaVersion else {
+            try recoverFromInvalidCatalog()
+            return
+        }
+        load(state)
+    }
 
+    private func load(_ state: PersistedState) {
         entitiesByID = Dictionary(
-            uniqueKeysWithValues: state.entities.map { ($0.id, $0) }
+            state.entities.map { ($0.id, $0) },
+            uniquingKeysWith: { _, latest in latest }
         )
         identifiersBySource = Dictionary(
-            uniqueKeysWithValues: state.sources.map {
+            state.sources.map {
                 ($0.url.standardizedFileURL, Set($0.identifiers))
-            }
+            },
+            uniquingKeysWith: { previous, latest in previous.union(latest) }
         )
         providerReferences = Dictionary(
-            uniqueKeysWithValues: state.providerReferences.map {
+            state.providerReferences.map {
                 (
                     ProviderReference(providerID: $0.providerID, value: $0.value),
                     $0.identifier
                 )
-            }
+            },
+            uniquingKeysWith: { _, latest in latest }
         )
         pendingChanges = state.pendingChanges
+        fullRebuildRequired = state.fullRebuildRequired ?? false
+    }
+
+    private func recoverFromInvalidCatalog() throws {
+        let quarantineURL = storageURL.appendingPathExtension(
+            "invalid-\(UUID().uuidString)"
+        )
+        try? FileManager.default.moveItem(at: storageURL, to: quarantineURL)
+        resetInMemory(fullRebuildRequired: true)
+        try persist()
+    }
+
+    private func resetInMemory(fullRebuildRequired: Bool) {
+        entitiesByID = [:]
+        identifiersBySource = [:]
+        providerReferences = [:]
+        pendingChanges = []
+        self.fullRebuildRequired = fullRebuildRequired
     }
 
     private func persist() throws {
@@ -230,7 +270,8 @@ public actor PersistentEntityCatalog: EntityCatalog {
                 }
                 return $0.value < $1.value
             },
-            pendingChanges: pendingChanges
+            pendingChanges: pendingChanges,
+            fullRebuildRequired: fullRebuildRequired
         )
 
         let encoder = JSONEncoder()
@@ -241,19 +282,6 @@ public actor PersistentEntityCatalog: EntityCatalog {
             withIntermediateDirectories: true
         )
         try data.write(to: storageURL, options: [.atomic])
-    }
-}
-
-public extension PersistentEntityCatalog {
-    enum Error: LocalizedError, Equatable {
-        case unsupportedSchemaVersion(Int)
-
-        public var errorDescription: String? {
-            switch self {
-            case let .unsupportedSchemaVersion(version):
-                "The entity catalog uses unsupported schema version \(version)."
-            }
-        }
     }
 }
 
@@ -269,6 +297,7 @@ private extension PersistentEntityCatalog {
         var sources: [SourceRecord]
         var providerReferences: [ProviderReferenceRecord]
         var pendingChanges: [PendingEntityIndexChange]
+        var fullRebuildRequired: Bool?
     }
 
     struct SourceRecord: Codable {

@@ -208,6 +208,23 @@ public actor SpotlightEntityIndex: PermanentEntityIndex {
         }
     }
 
+    public func reset() async throws {
+        do {
+            try await index.deleteAppEntities(ofType: SpotlightKnowledgeEntity.self)
+            try await index.deleteAppEntities(ofType: SpotlightNoteEntity.self)
+            try projectionVersionStore.markCurrent(
+                version: SpotlightProjection.schemaVersion
+            )
+            didPrepareProjection = true
+        } catch {
+            let cocoaError = error as NSError
+            guard cocoaError.domain == CSIndexErrorDomain else {
+                throw error
+            }
+            throw SpotlightIndexingError(code: cocoaError.code)
+        }
+    }
+
     private func prepareProjectionIfNeeded() async throws {
         guard !didPrepareProjection else {
             return
@@ -219,6 +236,8 @@ public actor SpotlightEntityIndex: PermanentEntityIndex {
                 version: SpotlightProjection.schemaVersion
             )
         }
+        // A version change clears every BrainSurfacer projection. The app's
+        // startup path deliberately follows this first apply with reindexAll().
         didPrepareProjection = true
     }
 }

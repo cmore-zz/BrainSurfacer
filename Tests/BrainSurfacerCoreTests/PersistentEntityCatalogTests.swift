@@ -73,6 +73,68 @@ func failedIndexMutationIsReplayedAndAcknowledgedAfterRelaunch() async throws {
 }
 
 @Test
+func corruptCatalogTriggersAFullProjectionRebuild() async throws {
+    let fixture = try CatalogFixture()
+    defer { fixture.remove() }
+
+    let source = URL(fileURLWithPath: "/notes/recovered.md")
+    let stale = makePersistentEntity(id: "stale", source: source)
+    let initialCatalog = PersistentEntityCatalog(storageURL: fixture.catalogURL)
+    _ = try await initialCatalog.replaceEntities(from: source, with: [stale])
+    try Data("not valid json".utf8).write(to: fixture.catalogURL)
+
+    let recovered = makePersistentEntity(id: "recovered", source: source)
+    let catalog = PersistentEntityCatalog(storageURL: fixture.catalogURL)
+    let index = RebuildRecordingIndex(indexedIDs: [stale.id])
+    let coordinator = IndexingCoordinator(catalog: catalog, permanentIndex: index)
+
+    #expect(try await coordinator.prepareForReindex())
+    #expect(await index.resetCount == 1)
+    try await coordinator.replaceEntities(from: source, with: [recovered])
+    try await coordinator.completeFullRebuild()
+
+    #expect(await index.indexedIDs == [recovered.id])
+    #expect(try await catalog.requiresFullRebuild() == false)
+    #expect(try await catalog.allEntities().map(\.id) == [recovered.id])
+    let quarantinedFiles = try FileManager.default.contentsOfDirectory(
+        at: fixture.directoryURL,
+        includingPropertiesForKeys: nil
+    ).filter {
+        $0.lastPathComponent.hasPrefix("catalog.json.invalid-")
+    }
+    #expect(quarantinedFiles.count == 1)
+}
+
+@Test
+func incompatibleCatalogSchemaTriggersAFullProjectionRebuild() async throws {
+    let fixture = try CatalogFixture()
+    defer { fixture.remove() }
+
+    let source = URL(fileURLWithPath: "/notes/versioned.md")
+    let entity = makePersistentEntity(id: "versioned", source: source)
+    let initialCatalog = PersistentEntityCatalog(storageURL: fixture.catalogURL)
+    _ = try await initialCatalog.replaceEntities(from: source, with: [entity])
+    let data = try Data(contentsOf: fixture.catalogURL)
+    let currentJSON = try #require(String(data: data, encoding: .utf8))
+    let incompatibleJSON = currentJSON.replacingOccurrences(
+        of: "\"schemaVersion\":1",
+        with: "\"schemaVersion\":999"
+    )
+    #expect(incompatibleJSON != currentJSON)
+    try Data(incompatibleJSON.utf8).write(to: fixture.catalogURL)
+
+    let catalog = PersistentEntityCatalog(storageURL: fixture.catalogURL)
+    let index = RebuildRecordingIndex(indexedIDs: [entity.id])
+    let coordinator = IndexingCoordinator(catalog: catalog, permanentIndex: index)
+
+    #expect(try await coordinator.prepareForReindex())
+    #expect(await index.resetCount == 1)
+    #expect(await index.indexedIDs.isEmpty)
+    let rebuildRequired = try await catalog.requiresFullRebuild()
+    #expect(rebuildRequired)
+}
+
+@Test
 func structuralIdentitySurvivesDuplicateRenamesAndSourceRootMove() async throws {
     let fixture = try CatalogFixture()
     defer { fixture.remove() }
@@ -189,10 +251,13 @@ private actor AlwaysFailingIndex: PermanentEntityIndex {
     func apply(_ change: EntityIndexChange) throws {
         throw PersistentIndexFailure()
     }
+
+    func reset() {}
 }
 
 private actor SilentIndex: PermanentEntityIndex {
     func apply(_ change: EntityIndexChange) {}
+    func reset() {}
 }
 
 private actor PersistentRecordingIndex: PermanentEntityIndex {
@@ -200,6 +265,27 @@ private actor PersistentRecordingIndex: PermanentEntityIndex {
 
     func apply(_ change: EntityIndexChange) {
         changes.append(change)
+    }
+
+    func reset() {}
+}
+
+private actor RebuildRecordingIndex: PermanentEntityIndex {
+    private(set) var indexedIDs: Set<EntityID>
+    private(set) var resetCount = 0
+
+    init(indexedIDs: Set<EntityID>) {
+        self.indexedIDs = indexedIDs
+    }
+
+    func apply(_ change: EntityIndexChange) {
+        indexedIDs.subtract(change.removals)
+        indexedIDs.formUnion(change.upserts.map(\.id))
+    }
+
+    func reset() {
+        resetCount += 1
+        indexedIDs = []
     }
 }
 

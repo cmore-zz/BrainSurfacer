@@ -70,8 +70,8 @@ headings. It is not the production parser.
 Core coordinates source replacement as a single logical mutation:
 
 1. parse one changed source;
-2. stage that source's intended catalog state and durable index mutation;
-3. replay any older pending index mutations in order;
+2. replay any older pending index mutations in order;
+3. stage that source's intended catalog state and durable index mutation;
 4. upsert new/changed entities and remove stale identifiers;
 5. acknowledge the mutation only after the permanent index accepts it.
 
@@ -81,6 +81,18 @@ provider-local references, and pending index mutations across launches. A
 mutation is idempotent and remains pending after an adapter failure or process
 crash, so startup recovery can replay it without losing stale deletions. The
 in-memory catalog remains available for focused tests and transient tools.
+
+If the derived catalog is unreadable or has an incompatible schema, Core
+quarantines it and records that a full rebuild is required. The coordinator
+clears the permanent projection before rebuilding every enrolled source and
+only then clears the recovery marker. This prevents catalog recovery from
+leaving stale platform records behind.
+
+The app process is currently the only routine catalog writer; App Entity queries
+do not mutate healthy catalog state. Atomic file replacement gives readers a
+complete old or new snapshot but is not multi-process writer coordination. Any
+extension or editor connector that writes catalog state must first add a file
+lock or move the catalog to a transactional store such as SQLite.
 
 Ports define the permanent index, entity search, context providers, contextual
 publishing, and document opening. No port mentions an Apple framework or
