@@ -19,7 +19,7 @@ public actor IndexingCoordinator {
         with entities: [KnowledgeEntity]
     ) async throws {
         if try await prepareForReindex() == false {
-            try await replayPendingChanges()
+            try await replayPendingChangesAfterPreparation()
         }
         let pending = try await catalog.stageReplacement(from: source, with: entities)
         try await applyAndAcknowledge(pending)
@@ -29,6 +29,10 @@ public actor IndexingCoordinator {
         guard try await prepareForReindex() == false else {
             return
         }
+        try await replayPendingChangesAfterPreparation()
+    }
+
+    private func replayPendingChangesAfterPreparation() async throws {
         let pendingChanges = try await catalog.pendingIndexChanges()
         for pending in pendingChanges {
             try await applyAndAcknowledge(pending)

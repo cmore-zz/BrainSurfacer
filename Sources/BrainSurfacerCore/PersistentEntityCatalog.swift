@@ -203,7 +203,9 @@ public actor PersistentEntityCatalog: EntityCatalog {
 
     private func reload() throws {
         guard FileManager.default.fileExists(atPath: storageURL.path) else {
-            resetInMemory(fullRebuildRequired: false)
+            resetInMemory(
+                fullRebuildRequired: accessMode == .coordinatingWriter
+            )
             return
         }
 

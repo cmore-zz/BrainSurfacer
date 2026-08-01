@@ -46,6 +46,7 @@ func failedIndexMutationIsReplayedAndAcknowledgedAfterRelaunch() async throws {
     let source = URL(fileURLWithPath: "/notes/recovery.md")
     let entity = makePersistentEntity(id: "recovery", source: source)
     let firstCatalog = writableCatalog(at: fixture.catalogURL)
+    try await firstCatalog.markFullRebuildCompleted()
     let failingCoordinator = IndexingCoordinator(
         catalog: firstCatalog,
         permanentIndex: AlwaysFailingIndex()
@@ -67,9 +68,36 @@ func failedIndexMutationIsReplayedAndAcknowledgedAfterRelaunch() async throws {
 
     let replayedChanges = await recordingIndex.changes
     #expect(replayedChanges.count == 1)
-    #expect(replayedChanges[0].upserts.map(\.id) == [entity.id])
+    let replayedChange = try #require(replayedChanges.first)
+    #expect(replayedChange.upserts.map(\.id) == [entity.id])
     let pendingAfterRecovery = try await relaunchedCatalog.pendingIndexChanges()
     #expect(pendingAfterRecovery.isEmpty)
+}
+
+@Test
+func missingCatalogTriggersAWriterOwnedFullProjectionRebuild() async throws {
+    let fixture = try CatalogFixture()
+    defer { fixture.remove() }
+
+    let staleID = EntityID(rawValue: "stale-without-catalog")
+    let catalog = writableCatalog(at: fixture.catalogURL)
+    let index = RebuildRecordingIndex(indexedIDs: [staleID])
+    let coordinator = IndexingCoordinator(catalog: catalog, permanentIndex: index)
+
+    #expect(try await coordinator.prepareForReindex())
+    #expect(await index.resetCount == 1)
+    #expect(await index.indexedIDs.isEmpty)
+    #expect(FileManager.default.fileExists(atPath: fixture.catalogURL.path) == false)
+
+    try await coordinator.completeFullRebuild()
+    #expect(FileManager.default.fileExists(atPath: fixture.catalogURL.path))
+    #expect(try await catalog.requiresFullRebuild() == false)
+
+    let reader = PersistentEntityCatalog(
+        storageURL: fixture.directoryURL.appendingPathComponent("missing-reader.json"),
+        accessMode: .readOnly
+    )
+    #expect(try await reader.requiresFullRebuild() == false)
 }
 
 @Test

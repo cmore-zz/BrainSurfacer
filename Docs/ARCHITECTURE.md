@@ -82,11 +82,12 @@ mutation is idempotent and remains pending after an adapter failure or process
 crash, so startup recovery can replay it without losing stale deletions. The
 in-memory catalog remains available for focused tests and transient tools.
 
-If the derived catalog is unreadable or has an incompatible schema, Core
-quarantines it and records that a full rebuild is required. The coordinator
-clears the permanent projection before rebuilding every enrolled source and
-only then clears the recovery marker. This prevents catalog recovery from
-leaving stale platform records behind.
+If the derived catalog is missing, unreadable, or has an incompatible schema,
+the coordinating writer treats it as requiring a full rebuild; invalid bytes
+are also quarantined for diagnosis. The coordinator clears the permanent
+projection before rebuilding every enrolled source and only then clears the
+recovery marker. This prevents catalog recovery from leaving stale platform
+records behind.
 
 The app process owns the catalog's explicit coordinating-writer instance. App
 Entity queries use read-only instances: an invalid catalog produces an empty
