@@ -116,13 +116,13 @@ It maps a changed path to every enclosing enrolled source, preserving correct
 behavior for overlapping roots, and treats dropped event history as requiring
 reconciliation of every observed root. Notifications are debounced into root
 batches; changes received during reconciliation schedule one later pass rather
-than an overlapping pass. The reconciler itself is actor-isolated so startup,
-manual, enrollment, and event-driven work share the same serialization
-boundary. FSEvents decides when to reconcile, while persisted fingerprints
-still decide which files need parsing, so rename/delete confirmation and the
-last-known-good failure contract remain centralized in the scanner. Bounded
-parallel parsing can feed the same reconciler later without changing that
-contract.
+than an overlapping pass. The reconciler uses an explicit single-flight gate
+so actor reentrancy cannot interleave startup, manual, enrollment, removal, and
+event-driven work across suspension points. FSEvents decides when to reconcile,
+while persisted fingerprints still decide which files need parsing, so
+rename/delete confirmation and the last-known-good failure contract remain
+centralized in the scanner. Bounded parallel parsing can feed the same
+reconciler later without changing that contract.
 
 The production catalog is a versioned, rebuildable JSON projection in
 Application Support. It preserves source membership, canonical entities,

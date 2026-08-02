@@ -323,6 +323,10 @@ final class SourceLibraryModel {
             previousTask?.cancel()
             previousSubscription?.cancel()
         } catch {
+            sourceObservationTask?.cancel()
+            sourceObservationTask = nil
+            sourceChangeSubscription?.cancel()
+            sourceChangeSubscription = nil
             errorMessage = "BrainSurfacer couldn’t watch its source directories: "
                 + error.localizedDescription
         }
