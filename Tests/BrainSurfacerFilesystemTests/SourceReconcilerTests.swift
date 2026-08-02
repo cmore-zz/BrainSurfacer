@@ -66,6 +66,71 @@ func failedIndexingDoesNotCommitNewFingerprints() async throws {
     #expect(await fingerprints.fingerprints(for: fixture.source.url).isEmpty)
 }
 
+@Test
+func fingerprintWriteFailureDoesNotTurnSuccessfulIndexingIntoFailure() async throws {
+    let fixture = try ReconciliationFixture()
+    defer { fixture.remove() }
+
+    try "# Still indexed".write(
+        to: fixture.source.url.appending(path: "Indexed.md"),
+        atomically: true,
+        encoding: .utf8
+    )
+    let fileInsteadOfDirectory = fixture.directoryURL.appending(path: "blocked")
+    try "not a directory".write(
+        to: fileInsteadOfDirectory,
+        atomically: true,
+        encoding: .utf8
+    )
+    let catalog = InMemoryEntityCatalog()
+    let index = ReconciliationRecordingIndex()
+    let reconciler = SourceReconciler(
+        fingerprintStore: SourceFingerprintStore(
+            storageURL: fileInsteadOfDirectory.appending(path: "fingerprints.json")
+        ),
+        coordinator: IndexingCoordinator(catalog: catalog, permanentIndex: index)
+    )
+
+    let result = try await reconciler.reconcile(fixture.source)
+
+    #expect(result.parsedFileCount == 1)
+    #expect(await catalog.entities(from: fixture.source.url).count == 2)
+    #expect(await index.changes.count == 1)
+}
+
+@Test
+func cancelledReconciliationStopsBeforeIndexing() async throws {
+    let fixture = try ReconciliationFixture()
+    defer { fixture.remove() }
+
+    try "# Cancel me".write(
+        to: fixture.source.url.appending(path: "Cancel.md"),
+        atomically: true,
+        encoding: .utf8
+    )
+    let fingerprints = SourceFingerprintStore(storageURL: fixture.fingerprintURL)
+    let index = ReconciliationRecordingIndex()
+    let reconciler = SourceReconciler(
+        fingerprintStore: fingerprints,
+        coordinator: IndexingCoordinator(
+            catalog: InMemoryEntityCatalog(),
+            permanentIndex: index
+        )
+    )
+    let reconciliation = Task {
+        withUnsafeCurrentTask { task in
+            task?.cancel()
+        }
+        return try await reconciler.reconcile(fixture.source)
+    }
+
+    await #expect(throws: CancellationError.self) {
+        try await reconciliation.value
+    }
+    #expect(await index.changes.isEmpty)
+    #expect(await fingerprints.fingerprints(for: fixture.source.url).isEmpty)
+}
+
 private struct ReconciliationFixture {
     let directoryURL: URL
     let source: SourceDirectory

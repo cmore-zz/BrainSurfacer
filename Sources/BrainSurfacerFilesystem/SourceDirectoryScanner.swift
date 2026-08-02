@@ -60,8 +60,7 @@ public struct SourceDirectoryScanner: Sendable {
     public func scan(
         _ source: SourceDirectory,
         previousFingerprints: [URL: SourceFileFingerprint] = [:],
-        previousEntities: [KnowledgeEntity] = [],
-        force: Bool = false
+        previousEntities: [KnowledgeEntity] = []
     ) throws -> SourceScanResult {
         let root = source.url
         let didStartAccess = root.startAccessingSecurityScopedResource()
@@ -127,8 +126,7 @@ public struct SourceDirectoryScanner: Sendable {
                 }
                 fileCount += 1
                 let currentFingerprint = fingerprint(from: values)
-                if !force,
-                   let currentFingerprint,
+                if let currentFingerprint,
                    currentFingerprint == previousFingerprints[fileURL],
                    !previousFileEntities.isEmpty {
                     entities.append(contentsOf: previousFileEntities)

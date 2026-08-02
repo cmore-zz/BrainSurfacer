@@ -18,29 +18,26 @@ public struct SourceReconciler: Sendable {
         self.coordinator = coordinator
     }
 
-    public func reconcile(
-        _ source: SourceDirectory,
-        force: Bool = false
-    ) async throws -> SourceScanResult {
+    public func reconcile(_ source: SourceDirectory) async throws -> SourceScanResult {
         let previousFingerprints = await fingerprintStore.fingerprints(
             for: source.url
         )
         let previousEntities = try await coordinator.entities(from: source.url)
-        let scanner = self.scanner
-        let result = try await Task.detached(priority: .utility) {
-            try scanner.scan(
-                source,
-                previousFingerprints: previousFingerprints,
-                previousEntities: previousEntities,
-                force: force
-            )
-        }.value
+        let result = try scanner.scan(
+            source,
+            previousFingerprints: previousFingerprints,
+            previousEntities: previousEntities
+        )
+        try Task.checkCancellation()
 
         try await coordinator.replaceEntities(
             from: source.url,
             with: result.entities
         )
-        try await fingerprintStore.replaceFingerprints(
+        // Fingerprints are disposable optimization state. If this write fails,
+        // the catalog and permanent index are still correct; the next pass
+        // safely reparses files instead of reporting a false indexing failure.
+        try? await fingerprintStore.replaceFingerprints(
             for: source.url,
             with: result.fingerprints
         )

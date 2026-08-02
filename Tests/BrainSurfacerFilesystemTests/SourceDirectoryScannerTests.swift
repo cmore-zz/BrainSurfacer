@@ -83,6 +83,22 @@ func scannerReusesUnchangedFilesRetainsFailuresAndConfirmsDeletions() throws {
     #expect(unchanged.reusedFileCount == 2)
     #expect(unchanged.entities == initial.entities)
 
+    let obsoleteParserFingerprints = unchanged.fingerprints.mapValues {
+        SourceFileFingerprint(
+            modifiedAt: $0.modifiedAt,
+            fileSize: $0.fileSize,
+            parserRevision: OutlineParser.outputRevision - 1
+        )
+    }
+    let parserUpdated = try scanner.scan(
+        source,
+        previousFingerprints: obsoleteParserFingerprints,
+        previousEntities: unchanged.entities
+    )
+
+    #expect(parserUpdated.parsedFileCount == 2)
+    #expect(parserUpdated.reusedFileCount == 0)
+
     try "# Updated with a different size".write(
         to: changingFile,
         atomically: true,
@@ -90,8 +106,8 @@ func scannerReusesUnchangedFilesRetainsFailuresAndConfirmsDeletions() throws {
     )
     let changed = try scanner.scan(
         source,
-        previousFingerprints: unchanged.fingerprints,
-        previousEntities: unchanged.entities
+        previousFingerprints: parserUpdated.fingerprints,
+        previousEntities: parserUpdated.entities
     )
 
     #expect(changed.parsedFileCount == 1)

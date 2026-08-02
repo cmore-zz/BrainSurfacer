@@ -130,7 +130,7 @@ final class SourceLibraryModel {
 
         var allSourcesSucceeded = true
         for source in sources {
-            if await !reindex(source, force: isFullRebuild) {
+            if await !reindex(source) {
                 allSourcesSucceeded = false
             }
         }
@@ -152,11 +152,11 @@ final class SourceLibraryModel {
     }
 
     @discardableResult
-    func reindex(_ source: SourceDirectory, force: Bool = false) async -> Bool {
+    func reindex(_ source: SourceDirectory) async -> Bool {
         indexStatusBySource[source.id, default: SourceIndexStatus()].state = .indexing
 
         do {
-            let result = try await reconciler.reconcile(source, force: force)
+            let result = try await reconciler.reconcile(source)
             indexStatusBySource[source.id] = SourceIndexStatus(
                 state: .indexed,
                 fileCount: result.fileCount,

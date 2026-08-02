@@ -98,10 +98,18 @@ mutation:
    accept that replacement.
 
 The fingerprint cache is separately versioned, disposable JSON in Application
-Support. Missing or invalid fingerprint state causes reparsing rather than
-catalog deletion. A catalog recovery rebuild forces parsing even when a prior
-fingerprint cache survives. FSEvents and bounded parallel parsing can feed this
-same reconciler later without changing its failure contract.
+Support. Each fingerprint includes the parser-output revision as well as file
+modification date and size, so parser changes invalidate otherwise-unchanged
+files. Missing, invalid, or unwritable fingerprint state causes reparsing rather
+than catalog deletion or a false indexing failure. Catalog recovery also
+reparses because an empty recovered catalog has no entities eligible for reuse.
+
+Modification date and size avoid reading unchanged files, but they can miss an
+in-place, same-size edit made by a tool that also preserves the timestamp. This
+is an explicit performance tradeoff for the first incremental slice; content
+hashing or event-provided change knowledge can close that gap later. FSEvents
+and bounded parallel parsing can feed the same reconciler without changing its
+failure contract.
 
 The production catalog is a versioned, rebuildable JSON projection in
 Application Support. It preserves source membership, canonical entities,

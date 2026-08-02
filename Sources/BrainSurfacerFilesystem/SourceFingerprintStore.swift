@@ -3,10 +3,16 @@ import Foundation
 public struct SourceFileFingerprint: Codable, Equatable, Sendable {
     public var modifiedAt: Date
     public var fileSize: Int64
+    public var parserRevision: Int
 
-    public init(modifiedAt: Date, fileSize: Int64) {
+    public init(
+        modifiedAt: Date,
+        fileSize: Int64,
+        parserRevision: Int = OutlineParser.outputRevision
+    ) {
         self.modifiedAt = modifiedAt
         self.fileSize = fileSize
+        self.parserRevision = parserRevision
     }
 }
 

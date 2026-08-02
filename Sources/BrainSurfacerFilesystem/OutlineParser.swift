@@ -3,6 +3,10 @@ import CryptoKit
 import Foundation
 
 public struct OutlineParser: Sendable {
+    /// Increment whenever unchanged source text can produce different entities.
+    /// Persisted file fingerprints include this value to force reparsing after
+    /// parser-output changes.
+    public static let outputRevision = 1
     public static let maximumHeadingDepth = 32
     public static let maximumMarkdownHeadingDepth = 6
     public static let maximumSectionBodyBytes = 64 * 1_024
