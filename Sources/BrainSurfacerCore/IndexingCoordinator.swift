@@ -32,6 +32,10 @@ public actor IndexingCoordinator {
         try await replayPendingChangesAfterPreparation()
     }
 
+    public func entities(from source: URL) async throws -> [KnowledgeEntity] {
+        try await catalog.entities(from: source)
+    }
+
     private func replayPendingChangesAfterPreparation() async throws {
         let pendingChanges = try await catalog.pendingIndexChanges()
         for pending in pendingChanges {

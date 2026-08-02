@@ -54,14 +54,14 @@ invariants.
 - Make Spotlight, Siri, and in-app results share one resolution and opening
   path.
 
-## 6. Incremental, failure-safe filesystem reconciliation
+## 6. Incremental, failure-safe filesystem reconciliation *(in progress)*
 
 - Observe source roots with FSEvents and coalesce rename/change batches.
-- Persist file fingerprints and parse only changed units.
+- Persist file fingerprints and parse only changed units. *(implemented)*
 - Replace whole-catalog JSON reloads with indexed, transactional lookup once
   query scale or additional writer processes require it.
 - Retain the last-known-good projection for unreadable or malformed files;
-  remove entities only for confirmed deletions.
+  remove entities only for confirmed deletions. *(implemented)*
 - Add cancellation, backpressure, bounded parallel parsing, and scale tests over
   tens of thousands of notes.
 

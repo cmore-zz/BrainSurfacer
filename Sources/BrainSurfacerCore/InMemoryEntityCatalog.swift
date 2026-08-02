@@ -46,6 +46,12 @@ public actor InMemoryEntityCatalog: EntityCatalog {
         identifiers.compactMap { entitiesByID[$0] }
     }
 
+    public func entities(from source: URL) -> [KnowledgeEntity] {
+        identifiersBySource[source.standardizedFileURL, default: []]
+            .compactMap { entitiesByID[$0] }
+            .sorted { $0.id.rawValue < $1.id.rawValue }
+    }
+
     public func allEntities() -> [KnowledgeEntity] {
         entitiesByID.values.sorted { $0.id.rawValue < $1.id.rawValue }
     }

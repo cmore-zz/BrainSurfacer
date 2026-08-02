@@ -56,6 +56,7 @@ public protocol EntityCatalog: Sendable {
     ) async throws -> EntityIndexChange
 
     func entities(identifiedBy identifiers: [EntityID]) async throws -> [KnowledgeEntity]
+    func entities(from source: URL) async throws -> [KnowledgeEntity]
     func allEntities() async throws -> [KnowledgeEntity]
     func resolve(_ reference: EntityReference) async throws -> KnowledgeEntity?
 

@@ -24,12 +24,14 @@ func replacingSourceRemovesStaleEntities() async throws {
     )
 
     try await coordinator.replaceEntities(from: source, with: [first, second])
+    #expect(try await coordinator.entities(from: source).map(\.id) == [first.id, second.id])
     try await coordinator.replaceEntities(from: source, with: [second])
 
     let changes = await index.changes
     #expect(changes.count == 2)
     #expect(changes[1].removals == [first.id])
     #expect(changes[1].upserts.map(\.id) == [second.id])
+    #expect(try await coordinator.entities(from: source).map(\.id) == [second.id])
 }
 
 @Test
