@@ -1,4 +1,5 @@
-import BrainSurfacerFilesystem
+@testable import BrainSurfacerFilesystem
+import BrainSurfacerModel
 import Foundation
 import Testing
 
@@ -37,7 +38,7 @@ func scannerRecursivelyParsesSupportedKnowledgeFiles() async throws {
         encoding: .utf8
     )
 
-    let result = try SourceDirectoryScanner().scan(
+    let result = try await SourceDirectoryScanner().scan(
         SourceDirectory(url: root)
     )
 
@@ -54,7 +55,7 @@ func scannerRecursivelyParsesSupportedKnowledgeFiles() async throws {
 }
 
 @Test
-func scannerReusesUnchangedFilesRetainsFailuresAndConfirmsDeletions() throws {
+func scannerReusesUnchangedFilesRetainsFailuresAndConfirmsDeletions() async throws {
     let root = FileManager.default.temporaryDirectory
         .appending(path: "BrainSurfacerIncremental-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(
@@ -72,8 +73,8 @@ func scannerReusesUnchangedFilesRetainsFailuresAndConfirmsDeletions() throws {
 
     let scanner = SourceDirectoryScanner()
     let source = SourceDirectory(url: root)
-    let initial = try scanner.scan(source)
-    let unchanged = try scanner.scan(
+    let initial = try await scanner.scan(source)
+    let unchanged = try await scanner.scan(
         source,
         previousFingerprints: initial.fingerprints,
         previousEntities: initial.entities
@@ -90,7 +91,7 @@ func scannerReusesUnchangedFilesRetainsFailuresAndConfirmsDeletions() throws {
             parserRevision: OutlineParser.outputRevision - 1
         )
     }
-    let parserUpdated = try scanner.scan(
+    let parserUpdated = try await scanner.scan(
         source,
         previousFingerprints: obsoleteParserFingerprints,
         previousEntities: unchanged.entities
@@ -104,7 +105,7 @@ func scannerReusesUnchangedFilesRetainsFailuresAndConfirmsDeletions() throws {
         atomically: true,
         encoding: .utf8
     )
-    let changed = try scanner.scan(
+    let changed = try await scanner.scan(
         source,
         previousFingerprints: parserUpdated.fingerprints,
         previousEntities: parserUpdated.entities
@@ -115,7 +116,7 @@ func scannerReusesUnchangedFilesRetainsFailuresAndConfirmsDeletions() throws {
     #expect(changed.entities.contains { $0.title == "Updated with a different size" })
 
     try Data([0xFF, 0xFE, 0xFD]).write(to: fragileFile, options: [.atomic])
-    let retained = try scanner.scan(
+    let retained = try await scanner.scan(
         source,
         previousFingerprints: changed.fingerprints,
         previousEntities: changed.entities
@@ -127,7 +128,7 @@ func scannerReusesUnchangedFilesRetainsFailuresAndConfirmsDeletions() throws {
         == changed.fingerprints[fragileFile.standardizedFileURL])
 
     try FileManager.default.removeItem(at: changingFile)
-    let deleted = try scanner.scan(
+    let deleted = try await scanner.scan(
         source,
         previousFingerprints: retained.fingerprints,
         previousEntities: retained.entities
@@ -138,4 +139,121 @@ func scannerReusesUnchangedFilesRetainsFailuresAndConfirmsDeletions() throws {
     })
     #expect(deleted.fingerprints[changingFile.standardizedFileURL] == nil)
     #expect(deleted.entities.contains { $0.title == "Last known good" })
+}
+
+@Test
+func scannerBoundsConcurrentParsing() async throws {
+    let root = try makeScannerFixture(fileCount: 12)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    let probe = ParallelParseProbe(delay: .milliseconds(20))
+    let scanner = SourceDirectoryScanner(maximumConcurrentFileParses: 3) {
+        try await probe.parse($0)
+    }
+    let result = try await scanner.scan(SourceDirectory(url: root))
+
+    #expect(result.fileCount == 12)
+    #expect(result.parsedFileCount == 12)
+    #expect(await probe.callCount == 12)
+    #expect(await probe.maximumActiveCount == 3)
+}
+
+@Test
+func scannerCancellationStopsFeedingPendingFiles() async throws {
+    let root = try makeScannerFixture(fileCount: 12)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    let probe = SuspendedParseProbe(expectedInitialCount: 2)
+    let scanner = SourceDirectoryScanner(maximumConcurrentFileParses: 2) {
+        try await probe.parse($0)
+    }
+    let scanTask = Task {
+        try await scanner.scan(SourceDirectory(url: root))
+    }
+
+    await probe.waitUntilInitialParsesStart()
+    scanTask.cancel()
+
+    await #expect(throws: CancellationError.self) {
+        try await scanTask.value
+    }
+    #expect(await probe.startedCount == 2)
+}
+
+private func makeScannerFixture(fileCount: Int) throws -> URL {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerParallel-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+    for index in 0..<fileCount {
+        try "# Note \(index)".write(
+            to: root.appending(path: "Note-\(index).md"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+    return root
+}
+
+private actor ParallelParseProbe {
+    private let delay: Duration
+    private var activeCount = 0
+    private(set) var callCount = 0
+    private(set) var maximumActiveCount = 0
+
+    init(delay: Duration) {
+        self.delay = delay
+    }
+
+    func parse(_ request: SourceFileParseRequest) async throws -> [KnowledgeEntity] {
+        callCount += 1
+        activeCount += 1
+        maximumActiveCount = max(maximumActiveCount, activeCount)
+        do {
+            try await Task.sleep(for: delay)
+        } catch {
+            activeCount -= 1
+            throw error
+        }
+        activeCount -= 1
+        return []
+    }
+}
+
+private actor SuspendedParseProbe {
+    private let expectedInitialCount: Int
+    private var initialParseWaiters: [CheckedContinuation<Void, Never>] = []
+    private(set) var startedCount = 0
+
+    init(expectedInitialCount: Int) {
+        self.expectedInitialCount = expectedInitialCount
+    }
+
+    func parse(_ request: SourceFileParseRequest) async throws -> [KnowledgeEntity] {
+        startedCount += 1
+        if startedCount == expectedInitialCount {
+            let waiters = initialParseWaiters
+            initialParseWaiters.removeAll()
+            for waiter in waiters {
+                waiter.resume()
+            }
+        }
+        try await Task.sleep(for: .seconds(60))
+        return []
+    }
+
+    func waitUntilInitialParsesStart() async {
+        guard startedCount < expectedInitialCount else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            initialParseWaiters.append(continuation)
+        }
+    }
 }
