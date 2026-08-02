@@ -108,8 +108,21 @@ Modification date and size avoid reading unchanged files, but they can miss an
 in-place, same-size edit made by a tool that also preserves the timestamp. This
 is an explicit performance tradeoff for the first incremental slice; content
 hashing or event-provided change knowledge can close that gap later. FSEvents
-and bounded parallel parsing can feed the same reconciler without changing its
-failure contract.
+now observes every enrolled root with per-file and root-change notifications.
+Each running stream holds the roots' security-scoped read leases and releases
+them when the observed enrollment set is replaced or the app model is torn
+down.
+It maps a changed path to every enclosing enrolled source, preserving correct
+behavior for overlapping roots, and treats dropped event history as requiring
+reconciliation of every observed root. Notifications are debounced into root
+batches; changes received during reconciliation schedule one later pass rather
+than an overlapping pass. The reconciler uses an explicit single-flight gate
+so actor reentrancy cannot interleave startup, manual, enrollment, removal, and
+event-driven work across suspension points. FSEvents decides when to reconcile,
+while persisted fingerprints still decide which files need parsing, so
+rename/delete confirmation and the last-known-good failure contract remain
+centralized in the scanner. Bounded parallel parsing can feed the same
+reconciler later without changing that contract.
 
 The production catalog is a versioned, rebuildable JSON projection in
 Application Support. It preserves source membership, canonical entities,

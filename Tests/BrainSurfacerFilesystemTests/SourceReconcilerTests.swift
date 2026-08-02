@@ -131,6 +131,44 @@ func cancelledReconciliationStopsBeforeIndexing() async throws {
     #expect(await fingerprints.fingerprints(for: fixture.source.url).isEmpty)
 }
 
+@Test
+func removalWaitsForInFlightReconciliation() async throws {
+    let fixture = try ReconciliationFixture()
+    defer { fixture.remove() }
+
+    try "# Remove after indexing".write(
+        to: fixture.source.url.appending(path: "Remove.md"),
+        atomically: true,
+        encoding: .utf8
+    )
+    let catalog = InMemoryEntityCatalog()
+    let index = ReconciliationBlockingIndex()
+    let reconciler = SourceReconciler(
+        fingerprintStore: SourceFingerprintStore(
+            storageURL: fixture.fingerprintURL
+        ),
+        coordinator: IndexingCoordinator(catalog: catalog, permanentIndex: index)
+    )
+    let reconciliation = Task {
+        try await reconciler.reconcile(fixture.source)
+    }
+    await index.waitUntilFirstApplyStarts()
+
+    let removal = Task {
+        try await reconciler.remove(fixture.source)
+    }
+    try await Task.sleep(for: .milliseconds(50))
+
+    #expect(await index.applyCallCount == 1)
+    await index.releaseFirstApply()
+    _ = try await reconciliation.value
+    try await removal.value
+
+    #expect(await index.applyCallCount == 2)
+    #expect(await catalog.entities(from: fixture.source.url).isEmpty)
+    #expect(await index.indexedEntityIDs.isEmpty)
+}
+
 private struct ReconciliationFixture {
     let directoryURL: URL
     let source: SourceDirectory
@@ -161,6 +199,45 @@ private actor ReconciliationRecordingIndex: PermanentEntityIndex {
     }
 
     func reset() {}
+}
+
+private actor ReconciliationBlockingIndex: PermanentEntityIndex {
+    private(set) var applyCallCount = 0
+    private(set) var indexedEntityIDs: Set<EntityID> = []
+    private var firstApplyRelease: CheckedContinuation<Void, Never>?
+    private var firstApplyStartWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func apply(_ change: EntityIndexChange) async {
+        applyCallCount += 1
+        if applyCallCount == 1 {
+            let waiters = firstApplyStartWaiters
+            firstApplyStartWaiters.removeAll()
+            for waiter in waiters {
+                waiter.resume()
+            }
+            await withCheckedContinuation { continuation in
+                firstApplyRelease = continuation
+            }
+        }
+        indexedEntityIDs.subtract(change.removals)
+        indexedEntityIDs.formUnion(change.upserts.map(\.id))
+    }
+
+    func reset() {}
+
+    func waitUntilFirstApplyStarts() async {
+        guard applyCallCount == 0 else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            firstApplyStartWaiters.append(continuation)
+        }
+    }
+
+    func releaseFirstApply() {
+        firstApplyRelease?.resume()
+        firstApplyRelease = nil
+    }
 }
 
 private struct ReconciliationIndexFailure: Error {}
