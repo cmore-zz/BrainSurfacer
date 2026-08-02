@@ -222,6 +222,28 @@ func sourceValidationDoesNotConfusePermissionDenialWithDeletion() {
 }
 
 @Test
+func appIntentOpeningDoesNotRepeatASystemPresentedFailure() async throws {
+    let source = URL(fileURLWithPath: "/tmp/Intent-Presented.md")
+    let entity = KnowledgeEntity(
+        id: EntityID(rawValue: "intent-presented"),
+        kind: .note,
+        title: "Intent presented",
+        source: SourceAnchor(fileURL: source)
+    )
+    let catalog = InMemoryEntityCatalog()
+    _ = await catalog.replaceEntities(from: source, with: [entity])
+    let opener = IntentPresentedFailingOpener()
+
+    try await BrainSurfacerIntentOpening.open(
+        entity.id,
+        catalog: catalog,
+        openers: [opener]
+    )
+
+    #expect(await opener.openCount == 1)
+}
+
+@Test
 func spotlightEntityQueriesResolveOnlyTheirProjectionKinds() async throws {
     let source = URL(fileURLWithPath: "/notes/query.md")
     let ordinary = KnowledgeEntity(
@@ -347,5 +369,22 @@ private actor RecordingDocumentAccessProvider: DocumentAccessProvider {
     ) async throws {
         requestedURLs.append(documentURL)
         try await operation()
+    }
+}
+
+private struct IntentPresentedFailure: LocalizedError,
+    UserPresentedDocumentOpeningError {
+    var errorDescription: String? { "Already presented by macOS" }
+}
+
+private actor IntentPresentedFailingOpener: DocumentOpener {
+    let id = "intent-presented-failure"
+    private(set) var openCount = 0
+
+    func canOpen(_ entity: KnowledgeEntity) async -> Bool { true }
+
+    func open(_ entity: KnowledgeEntity) async throws {
+        openCount += 1
+        throw IntentPresentedFailure()
     }
 }

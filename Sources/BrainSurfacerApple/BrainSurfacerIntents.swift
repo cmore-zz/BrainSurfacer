@@ -80,16 +80,33 @@ public enum BrainSurfacerNavigationRequests {
     }
 }
 
-private enum BrainSurfacerIntentOpening {
+enum BrainSurfacerIntentOpening {
     static func open(_ entityID: EntityID) async throws {
         let catalog = PersistentEntityCatalog(
             storageURL: PersistentEntityCatalog.defaultStorageURL(),
             accessMode: .readOnly
         )
-        let coordinator = EntityOpeningCoordinator(
+        try await open(
+            entityID,
             catalog: catalog,
             openers: [ConfiguredDocumentOpener()]
         )
-        try await coordinator.open(.entityID(entityID))
+    }
+
+    static func open(
+        _ entityID: EntityID,
+        catalog: any EntityCatalog,
+        openers: [any DocumentOpener]
+    ) async throws {
+        let coordinator = EntityOpeningCoordinator(
+            catalog: catalog,
+            openers: openers
+        )
+        do {
+            try await coordinator.open(.entityID(entityID))
+        } catch EntityOpeningError.failureAlreadyPresented(_) {
+            // The system-owned UI is the complete result for this invocation;
+            // do not make Siri or Shortcuts repeat the same failure.
+        }
     }
 }
