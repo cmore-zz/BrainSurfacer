@@ -56,6 +56,7 @@ public protocol EntityCatalog: Sendable {
     ) async throws -> EntityIndexChange
 
     func entities(identifiedBy identifiers: [EntityID]) async throws -> [KnowledgeEntity]
+    func entities(from source: URL) async throws -> [KnowledgeEntity]
     func allEntities() async throws -> [KnowledgeEntity]
     func resolve(_ reference: EntityReference) async throws -> KnowledgeEntity?
 
@@ -71,6 +72,24 @@ public protocol EntityCatalog: Sendable {
 }
 
 public extension EntityCatalog {
+    /// Compatibility fallback for catalogs that do not persist exact source
+    /// membership. Catalogs with source records should override this method;
+    /// path containment cannot distinguish overlapping enrolled roots.
+    func entities(from source: URL) async throws -> [KnowledgeEntity] {
+        let sourceComponents = source.standardizedFileURL.pathComponents
+        return try await allEntities()
+            .filter { entity in
+                let entityComponents = entity.source.fileURL.standardizedFileURL
+                    .pathComponents
+                guard sourceComponents.count <= entityComponents.count else {
+                    return false
+                }
+                return entityComponents.prefix(sourceComponents.count)
+                    .elementsEqual(sourceComponents)
+            }
+            .sorted { $0.id.rawValue < $1.id.rawValue }
+    }
+
     func stageReplacement(
         from source: URL,
         with entities: [KnowledgeEntity]

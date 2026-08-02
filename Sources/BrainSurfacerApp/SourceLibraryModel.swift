@@ -38,8 +38,8 @@ final class SourceLibraryModel {
     var errorMessage: String?
 
     private let store: SourceDirectoryStore
-    private let scanner: SourceDirectoryScanner
     private let coordinator: IndexingCoordinator
+    private let reconciler: SourceReconciler
     private let entitySearch: any EntitySearch
     private let openingCoordinator: EntityOpeningCoordinator
     private var searchGeneration = 0
@@ -47,18 +47,24 @@ final class SourceLibraryModel {
     init(
         store: SourceDirectoryStore = SourceDirectoryStore(),
         scanner: SourceDirectoryScanner = SourceDirectoryScanner(),
+        fingerprintStore: SourceFingerprintStore = SourceFingerprintStore(),
         entitySearch: any EntitySearch = SpotlightEntitySearch()
     ) {
         self.store = store
-        self.scanner = scanner
         self.entitySearch = entitySearch
         let catalog = PersistentEntityCatalog(
             storageURL: PersistentEntityCatalog.defaultStorageURL(),
             accessMode: .coordinatingWriter
         )
-        coordinator = IndexingCoordinator(
+        let coordinator = IndexingCoordinator(
             catalog: catalog,
             permanentIndex: SpotlightEntityIndex()
+        )
+        self.coordinator = coordinator
+        reconciler = SourceReconciler(
+            scanner: scanner,
+            fingerprintStore: fingerprintStore,
+            coordinator: coordinator
         )
         openingCoordinator = EntityOpeningCoordinator(
             catalog: catalog,
@@ -101,7 +107,7 @@ final class SourceLibraryModel {
         Task {
             sources = await store.remove(source)
             do {
-                try await coordinator.replaceEntities(from: source.url, with: [])
+                try await reconciler.remove(source)
                 indexStatusBySource.removeValue(forKey: source.id)
             } catch {
                 errorMessage = "The source was removed, but its Spotlight entries couldn’t be deleted: \(error.localizedDescription)"
@@ -150,14 +156,7 @@ final class SourceLibraryModel {
         indexStatusBySource[source.id, default: SourceIndexStatus()].state = .indexing
 
         do {
-            let scanner = self.scanner
-            let result = try await Task.detached(priority: .utility) {
-                try scanner.scan(source)
-            }.value
-            try await coordinator.replaceEntities(
-                from: source.url,
-                with: result.entities
-            )
+            let result = try await reconciler.reconcile(source)
             indexStatusBySource[source.id] = SourceIndexStatus(
                 state: .indexed,
                 fileCount: result.fileCount,

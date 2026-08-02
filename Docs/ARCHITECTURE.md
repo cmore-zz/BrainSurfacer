@@ -81,13 +81,35 @@ policies down while broader syntax coverage remains future work.
 
 ### Core
 
-Core coordinates source replacement as a single logical mutation:
+Filesystem reconciliation and Core coordinate one enrolled root as a logical
+mutation:
 
-1. parse one changed source;
-2. replay any older pending index mutations in order;
-3. stage that source's intended catalog state and durable index mutation;
-4. upsert new/changed entities and remove stale identifiers;
-5. acknowledge the mutation only after the permanent index accepts it.
+1. load that root's persisted per-file resource fingerprints and exact catalog
+   membership;
+2. parse files whose modification date or size changed and reuse catalog
+   entities for unchanged files;
+3. retain last-known-good entities and the older fingerprint when a file cannot
+   be read or parsed, so the file is retried;
+4. remove a file's entities only when a complete enumeration confirms that the
+   file is absent;
+5. replay older pending index mutations, then stage and apply the reconciled
+   root replacement;
+6. persist the new fingerprints only after the catalog and permanent index
+   accept that replacement.
+
+The fingerprint cache is separately versioned, disposable JSON in Application
+Support. Each fingerprint includes the parser-output revision as well as file
+modification date and size, so parser changes invalidate otherwise-unchanged
+files. Missing, invalid, or unwritable fingerprint state causes reparsing rather
+than catalog deletion or a false indexing failure. Catalog recovery also
+reparses because an empty recovered catalog has no entities eligible for reuse.
+
+Modification date and size avoid reading unchanged files, but they can miss an
+in-place, same-size edit made by a tool that also preserves the timestamp. This
+is an explicit performance tradeoff for the first incremental slice; content
+hashing or event-provided change knowledge can close that gap later. FSEvents
+and bounded parallel parsing can feed the same reconciler without changing its
+failure contract.
 
 The production catalog is a versioned, rebuildable JSON projection in
 Application Support. It preserves source membership, canonical entities,

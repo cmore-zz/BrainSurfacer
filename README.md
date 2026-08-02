@@ -45,6 +45,13 @@ full reindexing. Documents are projected with the macOS 27 Notes schema,
 including tag and containing-folder entities; entities without an honest schema
 match remain custom. Projection versions trigger a controlled Spotlight rebuild
 when their shape changes.
+Per-file modification-time and size fingerprints avoid reparsing unchanged
+documents across launches. Reconciliation retains the last-known-good entities
+for unreadable or malformed files, retries them on the next pass, and removes
+entities only after a complete source enumeration confirms deletion. A parser
+output revision invalidates cached fingerprints after parsing behavior changes;
+same-size edits that deliberately preserve modification time remain a known
+metadata-fingerprint limitation.
 The Index view queries donated entities through Spotlight’s ranked user-query
 API and opens them through the same canonical resolution path as Spotlight and
 Siri App Intents. Durable `brainsurfacer://` links survive source moves recorded
