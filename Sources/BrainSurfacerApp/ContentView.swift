@@ -1,6 +1,10 @@
+import AppKit
+import BrainSurfacerApple
 import BrainSurfacerCore
 import BrainSurfacerFilesystem
+import Combine
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     private enum Section: String, CaseIterable, Identifiable {
@@ -34,6 +38,28 @@ struct ContentView: View {
         } detail: {
             detail
         }
+        .onOpenURL(perform: handleIncomingURL)
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: BrainSurfacerNavigationRequests.didSubmitSearch
+            )
+        ) { _ in
+            consumePendingSearch()
+        }
+        .task {
+            consumePendingSearch()
+        }
+        .alert(
+            "BrainSurfacer",
+            isPresented: Binding(
+                get: { sourceLibrary.errorMessage != nil },
+                set: { if !$0 { sourceLibrary.clearError() } }
+            )
+        ) {
+            Button("OK", action: sourceLibrary.clearError)
+        } message: {
+            Text(sourceLibrary.errorMessage ?? "The operation could not be completed.")
+        }
     }
 
     @ViewBuilder
@@ -50,14 +76,31 @@ struct ContentView: View {
                 message: "Editor connectors will report visible and nearby work separately from the permanent index."
             )
         case .openers:
-            EmptyState(
-                icon: "arrow.up.forward.app",
-                title: "Use the source’s default app",
-                message: "Configurable Emacs, Obsidian, VS Code, and BBEdit openers will preserve headings and positions where possible."
-            )
+            OpenersView()
         case nil:
             ContentUnavailableView("Select a section", systemImage: "brain")
         }
+    }
+
+    private func handleIncomingURL(_ url: URL) {
+        guard let link = BrainSurfacerDeepLink(url: url) else {
+            return
+        }
+        switch link {
+        case let .entity(entityID):
+            sourceLibrary.open(.entityID(entityID))
+        case let .search(term):
+            selection = .index
+            sourceLibrary.presentSearch(term)
+        }
+    }
+
+    private func consumePendingSearch() {
+        guard let term = BrainSurfacerNavigationRequests.consumePendingSearch() else {
+            return
+        }
+        selection = .index
+        sourceLibrary.presentSearch(term)
     }
 }
 
@@ -133,17 +176,6 @@ private struct SourcesView: View {
                     .padding(10)
                     .allowsHitTesting(false)
             }
-        }
-        .alert(
-            "Couldn’t Add Source",
-            isPresented: Binding(
-                get: { model.errorMessage != nil },
-                set: { if !$0 { model.clearError() } }
-            )
-        ) {
-            Button("OK", action: model.clearError)
-        } message: {
-            Text(model.errorMessage ?? "The directory could not be added.")
         }
     }
 }
@@ -225,7 +257,13 @@ private struct IndexView: View {
                             ContentUnavailableView.search(text: searchText)
                         } else {
                             ForEach(model.searchResults) { result in
-                                SearchResultRow(result: result)
+                                Button {
+                                    model.open(result)
+                                } label: {
+                                    SearchResultRow(result: result)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Open in the configured application")
                             }
                         }
                     }
@@ -258,6 +296,10 @@ private struct IndexView: View {
             }
             await model.search(searchText)
         }
+        .onAppear(perform: applySearchPresentationRequest)
+        .onChange(of: model.searchPresentationRequest) {
+            applySearchPresentationRequest()
+        }
         .onDisappear {
             model.clearSearch()
         }
@@ -282,6 +324,13 @@ private struct IndexView: View {
             Text(message)
                 .foregroundStyle(.red)
         }
+    }
+
+    private func applySearchPresentationRequest() {
+        guard let term = model.consumeSearchPresentationRequest() else {
+            return
+        }
+        searchText = term
     }
 }
 
@@ -343,6 +392,79 @@ private struct SourceStatusLabel: View {
                 .labelStyle(.iconOnly)
                 .help("Waiting to index")
         }
+    }
+}
+
+private struct OpenersView: View {
+    @AppStorage(DocumentOpeningSettings.preferenceKey)
+    private var preference = DocumentOpeningPreference.systemDefault.rawValue
+    @AppStorage(DocumentOpeningSettings.emacsApplicationPathKey)
+    private var emacsApplicationPath = ""
+
+    var body: some View {
+        Form {
+            Section("Document opener") {
+                Picker("Open indexed items with", selection: $preference) {
+                    ForEach(DocumentOpeningPreference.allCases) { opener in
+                        Text(opener.title).tag(opener.rawValue)
+                    }
+                }
+
+                Text(openerExplanation)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            if preference == DocumentOpeningPreference.emacs.rawValue {
+                Section("Emacs application") {
+                    LabeledContent("Application") {
+                        Text(
+                            emacsApplicationPath.isEmpty
+                                ? "Auto-detect Emacs.app"
+                                : URL(fileURLWithPath: emacsApplicationPath).lastPathComponent
+                        )
+                        .foregroundStyle(.secondary)
+                    }
+
+                    HStack {
+                        Button("Choose Emacs.app…", action: chooseEmacsApplication)
+                        if !emacsApplicationPath.isEmpty {
+                            Button("Use Auto-detected App") {
+                                emacsApplicationPath = ""
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Openers")
+    }
+
+    private var openerExplanation: String {
+        switch DocumentOpeningPreference(rawValue: preference) ?? .systemDefault {
+        case .systemDefault:
+            "Uses the application associated with each source file."
+        case .obsidian:
+            "Uses Obsidian’s URI and includes the Markdown heading when one is available. Falls back to the default application if Obsidian cannot open it."
+        case .emacs:
+            "Launches Emacs with the source line and column. Falls back to the default application if Emacs cannot open it."
+        }
+    }
+
+    private func chooseEmacsApplication() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Emacs"
+        panel.prompt = "Choose"
+        panel.allowedContentTypes = [.application]
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+        emacsApplicationPath = url.path
     }
 }
 

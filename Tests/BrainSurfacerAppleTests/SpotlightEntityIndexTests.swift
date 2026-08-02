@@ -49,6 +49,8 @@ func customProjectionSeparatesSearchableBodyFromDisplaySummary() {
     #expect(projection.summary == entity.summary)
     #expect(projection.attributeSet.textContent == entity.body)
     #expect(projection.attributeSet.contentDescription == entity.summary)
+    #expect(projection.openURL == BrainSurfacerDeepLink.entity(entity.id).url)
+    #expect(projection.attributeSet.path == entity.source.fileURL.path)
 }
 
 @Test
@@ -85,6 +87,8 @@ func noteProjectionUsesNotesSchemaAndItsOwnSearchDomain() {
     #expect(projection.folder?.name == "Notes")
     #expect(projection.attributeSet.textContent == "Searchable text")
     #expect(projection.attributeSet.contentDescription == "Short note summary")
+    #expect(projection.openURL == BrainSurfacerDeepLink.entity(entity.id).url)
+    #expect(projection.attributeSet.path == entity.source.fileURL.path)
     #expect(searchableItem.domainIdentifier == SpotlightNoteEntity.searchDomainIdentifier)
 }
 
@@ -93,7 +97,9 @@ func spotlightSearchResultPreservesDisplayMetadata() {
     let attributes = CSSearchableItemAttributeSet()
     attributes.title = "Search result"
     attributes.contentDescription = "A short excerpt"
-    attributes.contentURL = URL(fileURLWithPath: "/tmp/Result.md")
+    let entityID = EntityID(rawValue: "canonical-result")
+    attributes.contentURL = BrainSurfacerDeepLink.entity(entityID).url
+    attributes.path = "/tmp/Result.md"
     let item = CSSearchableItem(
         uniqueIdentifier: "result-id",
         domainIdentifier: SpotlightKnowledgeEntity.searchDomainIdentifier,
@@ -103,9 +109,115 @@ func spotlightSearchResultPreservesDisplayMetadata() {
     let result = SpotlightEntitySearch.result(from: item)
 
     #expect(result.id == "result-id")
+    #expect(result.entityID == entityID)
     #expect(result.title == "Search result")
     #expect(result.summary == "A short excerpt")
     #expect(result.sourceURL == URL(fileURLWithPath: "/tmp/Result.md"))
+}
+
+@Test
+func spotlightSearchIgnoresAnEmptySourcePath() {
+    let fallbackURL = URL(fileURLWithPath: "/tmp/Fallback.md")
+    let attributes = CSSearchableItemAttributeSet()
+    attributes.title = "Fallback"
+    attributes.path = ""
+    attributes.contentURL = fallbackURL
+    let item = CSSearchableItem(
+        uniqueIdentifier: "fallback-id",
+        domainIdentifier: SpotlightKnowledgeEntity.searchDomainIdentifier,
+        attributeSet: attributes
+    )
+
+    let result = SpotlightEntitySearch.result(from: item)
+
+    #expect(result.sourceURL == fallbackURL)
+}
+
+@Test
+func editorRequestsPreserveTheBestAvailableSourceAnchor() throws {
+    let entity = KnowledgeEntity(
+        id: EntityID(rawValue: "anchored"),
+        kind: .heading,
+        title: "Launch Plan",
+        source: SourceAnchor(
+            fileURL: URL(fileURLWithPath: "/tmp/Project Plan.md"),
+            headingPath: ["Project", "Launch Plan"],
+            line: 42,
+            column: 7
+        )
+    )
+
+    let obsidianURL = try #require(ConfiguredDocumentOpener.obsidianURL(for: entity))
+    let components = try #require(
+        URLComponents(url: obsidianURL, resolvingAgainstBaseURL: false)
+    )
+
+    #expect(obsidianURL.scheme == "obsidian")
+    #expect(
+        components.queryItems?.first(where: { $0.name == "path" })?.value
+            == "/tmp/Project Plan.md#Launch Plan"
+    )
+    #expect(
+        ConfiguredDocumentOpener.emacsArguments(for: entity)
+            == ["+42:7", "/tmp/Project Plan.md"]
+    )
+}
+
+@Test
+func configuredOpenerChecksTheSourceInsideItsAccessLease() async throws {
+    let source = URL(
+        fileURLWithPath: "/missing/\(UUID().uuidString)/Document.md"
+    )
+    let entity = KnowledgeEntity(
+        id: EntityID(rawValue: "leased"),
+        kind: .note,
+        title: "Leased",
+        source: SourceAnchor(fileURL: source)
+    )
+    let access = RecordingDocumentAccessProvider()
+    let opener = ConfiguredDocumentOpener(accessProvider: access)
+
+    await #expect(throws: DocumentOpeningFailure.self) {
+        try await opener.open(entity)
+    }
+    #expect(await access.requestedURLs == [source])
+}
+
+@Test
+func sourceValidationDoesNotConfusePermissionDenialWithDeletion() {
+    let missing = NSError(
+        domain: NSCocoaErrorDomain,
+        code: CocoaError.Code.fileReadNoSuchFile.rawValue
+    )
+    let denied = NSError(
+        domain: NSCocoaErrorDomain,
+        code: CocoaError.Code.fileReadNoPermission.rawValue
+    )
+
+    #expect(ConfiguredDocumentOpener.isMissingSourceError(missing))
+    #expect(!ConfiguredDocumentOpener.isMissingSourceError(denied))
+}
+
+@Test
+func appIntentOpeningDoesNotRepeatASystemPresentedFailure() async throws {
+    let source = URL(fileURLWithPath: "/tmp/Intent-Presented.md")
+    let entity = KnowledgeEntity(
+        id: EntityID(rawValue: "intent-presented"),
+        kind: .note,
+        title: "Intent presented",
+        source: SourceAnchor(fileURL: source)
+    )
+    let catalog = InMemoryEntityCatalog()
+    _ = await catalog.replaceEntities(from: source, with: [entity])
+    let opener = IntentPresentedFailingOpener()
+
+    try await BrainSurfacerIntentOpening.open(
+        entity.id,
+        catalog: catalog,
+        openers: [opener]
+    )
+
+    #expect(await opener.openCount == 1)
 }
 
 @Test
@@ -223,4 +335,33 @@ func appIntentQueriesHaveDistinctPersistentIdentifiers() {
     ]
 
     #expect(Set(identifiers).count == identifiers.count)
+}
+
+private actor RecordingDocumentAccessProvider: DocumentAccessProvider {
+    private(set) var requestedURLs: [URL] = []
+
+    func performWithAccess(
+        to documentURL: URL,
+        operation: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        requestedURLs.append(documentURL)
+        try await operation()
+    }
+}
+
+private struct IntentPresentedFailure: LocalizedError,
+    UserPresentedDocumentOpeningError {
+    var errorDescription: String? { "Already presented by macOS" }
+}
+
+private actor IntentPresentedFailingOpener: DocumentOpener {
+    let id = "intent-presented-failure"
+    private(set) var openCount = 0
+
+    func canOpen(_ entity: KnowledgeEntity) async -> Bool { true }
+
+    func open(_ entity: KnowledgeEntity) async throws {
+        openCount += 1
+        throw IntentPresentedFailure()
+    }
 }

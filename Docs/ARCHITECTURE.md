@@ -33,12 +33,15 @@ makes four distinctions explicit:
 ```text
 BrainSurfacerApp
     ├── BrainSurfacerCore ──> BrainSurfacerModel
-    ├── BrainSurfacerFilesystem ──> BrainSurfacerModel
-    └── BrainSurfacerApple ──> BrainSurfacerCore ──> BrainSurfacerModel
+    ├── BrainSurfacerFilesystem ──> BrainSurfacerCore ──> BrainSurfacerModel
+    └── BrainSurfacerApple ──> BrainSurfacerFilesystem
+                └────────────> BrainSurfacerCore ──> BrainSurfacerModel
 ```
 
-Dependencies only point inward. Filesystem, Apple frameworks, editor protocols,
-and UI can be replaced independently.
+Dependencies only point inward. The filesystem layer owns enrolled-source
+bookmark persistence, refresh, and access leases; the Apple layer composes
+those leases with platform openers instead of implementing a second bookmark
+reader.
 
 ## Layers
 
@@ -143,7 +146,7 @@ bind structured values to Spotlight indexing keys. Raw
 source metadata needed for reliable search and opening; they are no longer the
 sole carrier of structured semantics.
 
-Projection schema version `3` is persisted separately from the disposable
+Projection schema version `4` is persisted separately from the disposable
 catalog. A version change removes every custom and Notes App Entity before the
 first new mutation is accepted. Each upsert first removes its platform ID from
 both projection types, which also makes a note-to-custom type transition
@@ -157,6 +160,36 @@ In-app search goes back through the `EntitySearch` port. The Apple adapter uses
 `CSUserQuery` for ranked lexical and semantic results and filters on a
 BrainSurfacer App Entity domain, so only opted-in knowledge donations are
 returned. Core and the UI do not construct Spotlight predicates.
+
+Every persistent projection carries a `brainsurfacer://` content URL containing
+its canonical entity identifier; the original source path remains separate
+Spotlight metadata. Spotlight results, Open Intents for custom and Notes
+entities, direct deep links, and rows in the Index view all resolve that
+identifier through `EntityOpeningCoordinator` before dispatch. This prevents a
+stale projected path from becoming a second identity system and lets catalog
+reconciliation follow moves and renames.
+
+Incoming custom-scheme URLs are untrusted navigation. Handlers accept only the
+fixed entity and search routes, never accept filesystem paths or commands, and
+resolve entity identifiers exclusively against the enrolled local catalog. An
+entity route may still open its resolved source in the configured external
+editor, while a search route only presents a query in BrainSurfacer.
+
+The configured macOS opener routes to the file's default application, an
+Obsidian URI with the closest Markdown heading, or Emacs.app arguments with the
+closest line and column. A failed or stale editor preference falls back to the
+system default. Editor-specific probes do not present a system app-picker;
+only the terminal default-app path prompts the user if macOS needs help. Before
+checking or dispatching a source file, the opener
+loads the same configurable enrollment store used by source management,
+refreshes stale saved bookmarks, selects the most-specific enrolled parent
+directory, and holds its security-scoped access for the complete operation.
+This makes the same sandbox permission available to UI and App Intent opens
+without keeping source roots permanently active. The system
+`ShowInAppSearchResultsIntent`
+persists its term long enough for app launch and presents the same
+Spotlight-backed Index search UI; an in-process notification handles an
+already-running app.
 
 The macOS 27 `IndexedEntityQuery` adapters resolve identifiers from the durable
 catalog. They handle partial reindex requests by restoring known entities and

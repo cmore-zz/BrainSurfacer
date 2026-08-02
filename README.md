@@ -46,9 +46,15 @@ including tag and containing-folder entities; entities without an honest schema
 match remain custom. Projection versions trigger a controlled Spotlight rebuild
 when their shape changes.
 The Index view queries donated entities through Spotlight’s ranked user-query
-API. The parser and Apple projection remain deliberate probes rather than final
-implementations: filesystem change observation, broader syntax coverage, and
-editor connectors are still ahead. SDK-specific findings are recorded in
+API and opens them through the same canonical resolution path as Spotlight and
+Siri App Intents. Durable `brainsurfacer://` links survive source moves recorded
+by the catalog. The app can route results to the default macOS application,
+Obsidian with a Markdown heading, or Emacs with a line and column, with safe
+fallback to the default application. A system in-app search intent opens the
+same Index UI and query flow. The parser and Apple projection remain deliberate
+probes rather than final implementations: filesystem change observation,
+broader syntax coverage, and editor connectors are still ahead. SDK-specific
+findings are recorded in
 [Platform probes](Docs/PLATFORM_PROBES.md).
 
 ## Build

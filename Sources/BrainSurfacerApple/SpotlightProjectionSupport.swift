@@ -3,7 +3,7 @@ import CryptoKit
 import Foundation
 
 enum SpotlightProjection {
-    static let schemaVersion = 3
+    static let schemaVersion = 4
 
     enum Kind: Equatable {
         case note

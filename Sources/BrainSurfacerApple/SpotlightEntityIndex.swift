@@ -15,12 +15,13 @@ public struct SpotlightKnowledgeEntity: IndexedEntity {
     public static let defaultQuery = Query()
 
     public var id: String
+    private let entity: KnowledgeEntity
     @Property(indexingKey: \.displayName) public var title: String
     @Property public var subtitle: String
     @Property(indexingKey: \.textContent) public var text: String?
     @Property public var summary: String?
     @Property(indexingKey: \.keywords) public var tags: [String]
-    @Property(indexingKey: \.contentURL) public var sourceURL: URL
+    @Property(indexingKey: \.contentURL) public var openURL: URL
     @Property(indexingKey: \.contentModificationDate) public var modifiedAt: Date?
 
     public var displayRepresentation: DisplayRepresentation {
@@ -34,21 +35,25 @@ public struct SpotlightKnowledgeEntity: IndexedEntity {
         attributes.contentDescription = summary
         attributes.textContent = text
         attributes.keywords = tags
-        attributes.contentURL = sourceURL
+        attributes.contentURL = openURL
+        attributes.path = entity.source.fileURL.path
         attributes.contentModificationDate = modifiedAt
         return attributes
     }
 
     public init(_ entity: KnowledgeEntity) {
         id = Self.indexIdentifier(for: entity.id)
+        self.entity = entity
         title = entity.title
         subtitle = entity.kind.rawValue.capitalized
         text = entity.body ?? entity.summary
         summary = entity.summary
         tags = entity.tags.sorted()
-        sourceURL = entity.source.fileURL
+        openURL = BrainSurfacerDeepLink.entity(entity.id).url
         modifiedAt = entity.modifiedAt
     }
+
+    var canonicalEntityID: EntityID { entity.id }
 
     static func indexIdentifier(for entityID: EntityID) -> String {
         SpotlightProjection.indexIdentifier(for: entityID)

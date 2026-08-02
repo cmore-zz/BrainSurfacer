@@ -20,6 +20,11 @@ struct SourceIndexStatus: Equatable {
     var indexedAt: Date?
 }
 
+struct SearchPresentationRequest: Equatable, Identifiable {
+    let id = UUID()
+    let term: String
+}
+
 @MainActor
 @Observable
 final class SourceLibraryModel {
@@ -29,12 +34,14 @@ final class SourceLibraryModel {
     private(set) var searchResults: [EntitySearchResult] = []
     private(set) var isSearching = false
     private(set) var searchErrorMessage: String?
+    private(set) var searchPresentationRequest: SearchPresentationRequest?
     var errorMessage: String?
 
     private let store: SourceDirectoryStore
     private let scanner: SourceDirectoryScanner
     private let coordinator: IndexingCoordinator
     private let entitySearch: any EntitySearch
+    private let openingCoordinator: EntityOpeningCoordinator
     private var searchGeneration = 0
 
     init(
@@ -52,6 +59,10 @@ final class SourceLibraryModel {
         coordinator = IndexingCoordinator(
             catalog: catalog,
             permanentIndex: SpotlightEntityIndex()
+        )
+        openingCoordinator = EntityOpeningCoordinator(
+            catalog: catalog,
+            openers: [ConfiguredDocumentOpener(accessProvider: store)]
         )
         Task {
             sources = await store.load()
@@ -209,6 +220,35 @@ final class SourceLibraryModel {
         searchResults = []
         searchErrorMessage = nil
         isSearching = false
+    }
+
+    func presentSearch(_ term: String) {
+        searchPresentationRequest = SearchPresentationRequest(term: term)
+    }
+
+    func consumeSearchPresentationRequest() -> String? {
+        defer { searchPresentationRequest = nil }
+        return searchPresentationRequest?.term
+    }
+
+    func open(_ result: EntitySearchResult) {
+        if let entityID = result.entityID {
+            open(.entityID(entityID))
+        } else if let sourceURL = result.sourceURL {
+            open(.file(sourceURL))
+        }
+    }
+
+    func open(_ reference: EntityReference) {
+        Task {
+            do {
+                try await openingCoordinator.open(reference)
+            } catch EntityOpeningError.failureAlreadyPresented(_) {
+                // NSWorkspace has already shown the actionable system dialog.
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     var totalFileCount: Int {
