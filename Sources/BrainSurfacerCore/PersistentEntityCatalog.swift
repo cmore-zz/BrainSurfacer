@@ -95,7 +95,7 @@ public actor PersistentEntityCatalog: EntityCatalog {
         return identifiers.compactMap { entitiesByID[$0] }
     }
 
-    public func entities(from source: URL) throws -> [KnowledgeEntity] {
+    public func entities(from source: URL) async throws -> [KnowledgeEntity] {
         try reload()
         return identifiersBySource[source.standardizedFileURL, default: []]
             .compactMap { entitiesByID[$0] }
