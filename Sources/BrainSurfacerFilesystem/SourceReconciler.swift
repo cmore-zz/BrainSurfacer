@@ -3,7 +3,7 @@ import Foundation
 
 /// Reconciles one enrolled root while keeping fingerprints aligned with the
 /// catalog/index state they describe.
-public struct SourceReconciler: Sendable {
+public actor SourceReconciler {
     private let scanner: SourceDirectoryScanner
     private let fingerprintStore: SourceFingerprintStore
     private let coordinator: IndexingCoordinator

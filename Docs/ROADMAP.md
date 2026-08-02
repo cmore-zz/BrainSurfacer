@@ -56,7 +56,7 @@ invariants.
 
 ## 6. Incremental, failure-safe filesystem reconciliation *(in progress)*
 
-- Observe source roots with FSEvents and coalesce rename/change batches.
+- Observe source roots with FSEvents and coalesce rename/change batches. *(implemented)*
 - Persist file fingerprints and parse only changed units. *(implemented)*
 - Replace whole-catalog JSON reloads with indexed, transactional lookup once
   query scale or additional writer processes require it.

@@ -42,16 +42,22 @@ final class SourceLibraryModel {
     private let reconciler: SourceReconciler
     private let entitySearch: any EntitySearch
     private let openingCoordinator: EntityOpeningCoordinator
+    private let sourceObserver: FSEventsSourceObserver
+    private var sourceChangeSubscription: SourceChangeSubscription?
+    private var sourceObservationTask: Task<Void, Never>?
+    private var sourceChangeCoalescer: SourceChangeCoalescer?
     private var searchGeneration = 0
 
     init(
         store: SourceDirectoryStore = SourceDirectoryStore(),
         scanner: SourceDirectoryScanner = SourceDirectoryScanner(),
         fingerprintStore: SourceFingerprintStore = SourceFingerprintStore(),
-        entitySearch: any EntitySearch = SpotlightEntitySearch()
+        entitySearch: any EntitySearch = SpotlightEntitySearch(),
+        sourceObserver: FSEventsSourceObserver = FSEventsSourceObserver()
     ) {
         self.store = store
         self.entitySearch = entitySearch
+        self.sourceObserver = sourceObserver
         let catalog = PersistentEntityCatalog(
             storageURL: PersistentEntityCatalog.defaultStorageURL(),
             accessMode: .coordinatingWriter
@@ -70,11 +76,20 @@ final class SourceLibraryModel {
             catalog: catalog,
             openers: [ConfiguredDocumentOpener(accessProvider: store)]
         )
+        sourceChangeCoalescer = SourceChangeCoalescer { [weak self] sourceURLs in
+            await self?.reconcileChangedSources(sourceURLs)
+        }
         Task {
             sources = await store.load()
+            restartSourceObservation()
             isLoading = false
             await reindexAll()
         }
+    }
+
+    isolated deinit {
+        sourceObservationTask?.cancel()
+        sourceChangeSubscription?.cancel()
     }
 
     func chooseDirectory() {
@@ -106,6 +121,7 @@ final class SourceLibraryModel {
     func remove(_ source: SourceDirectory) {
         Task {
             sources = await store.remove(source)
+            restartSourceObservation()
             do {
                 try await reconciler.remove(source)
                 indexStatusBySource.removeValue(forKey: source.id)
@@ -271,12 +287,54 @@ final class SourceLibraryModel {
             do {
                 let previousIDs = Set(sources.map(\.id))
                 sources = try await store.add(urls)
+                restartSourceObservation()
                 for source in sources where !previousIDs.contains(source.id) {
                     await reindex(source)
                 }
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func restartSourceObservation() {
+        guard !sources.isEmpty else {
+            sourceObservationTask?.cancel()
+            sourceObservationTask = nil
+            sourceChangeSubscription?.cancel()
+            sourceChangeSubscription = nil
+            return
+        }
+
+        do {
+            let subscription = try sourceObserver.observe(sources)
+            let observationTask = Task { [weak self] in
+                for await sourceURLs in subscription.events {
+                    guard !Task.isCancelled, let self else {
+                        return
+                    }
+                    await self.sourceChangeCoalescer?.submit(sourceURLs)
+                }
+            }
+            let previousTask = sourceObservationTask
+            let previousSubscription = sourceChangeSubscription
+            sourceObservationTask = observationTask
+            sourceChangeSubscription = subscription
+            previousTask?.cancel()
+            previousSubscription?.cancel()
+        } catch {
+            errorMessage = "BrainSurfacer couldn’t watch its source directories: "
+                + error.localizedDescription
+        }
+    }
+
+    private func reconcileChangedSources(_ sourceURLs: Set<URL>) async {
+        let standardizedURLs = Set(sourceURLs.map(\.standardizedFileURL))
+        let changedSources = sources.filter {
+            standardizedURLs.contains($0.url.standardizedFileURL)
+        }
+        for source in changedSources {
+            await reindex(source)
         }
     }
 }
