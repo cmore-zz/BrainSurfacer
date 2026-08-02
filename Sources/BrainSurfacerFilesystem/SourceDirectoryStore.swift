@@ -12,7 +12,9 @@ public struct SourceDirectory: Identifiable, Hashable, Sendable {
     }
 }
 
-public actor SourceDirectoryStore {
+/// Persists enrolled source roots and leases their security-scoped access.
+/// Loading also replaces stale bookmarks before returning their resolved URLs.
+public actor SourceDirectoryStore: DocumentAccessProvider {
     public enum Error: LocalizedError {
         case notDirectory(URL)
 
@@ -46,6 +48,50 @@ public actor SourceDirectoryStore {
             defaults.set(resolution.bookmarks, forKey: storageKey)
         }
         return resolution.sources
+    }
+
+    public func performWithAccess(
+        to documentURL: URL,
+        operation: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        guard let root = enclosingEnrolledRoot(for: documentURL) else {
+            // Files inside the app container and other unrestricted locations
+            // do not need an enrollment bookmark.
+            try await operation()
+            return
+        }
+
+        let didStartAccess = root.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccess {
+                root.stopAccessingSecurityScopedResource()
+            }
+        }
+        try await operation()
+    }
+
+    func enclosingEnrolledRoot(for documentURL: URL) -> URL? {
+        Self.enclosingRoot(
+            for: documentURL,
+            among: load().map(\.url)
+        )
+    }
+
+    static func enclosingRoot(for documentURL: URL, among roots: [URL]) -> URL? {
+        let documentComponents = documentURL.standardizedFileURL.pathComponents
+        return roots
+            .map(\.standardizedFileURL)
+            .filter { root in
+                let rootComponents = root.pathComponents
+                guard rootComponents.count <= documentComponents.count else {
+                    return false
+                }
+                return documentComponents.prefix(rootComponents.count)
+                    .elementsEqual(rootComponents)
+            }
+            .max { first, second in
+                first.pathComponents.count < second.pathComponents.count
+            }
     }
 
     public func add(_ urls: [URL]) throws -> [SourceDirectory] {

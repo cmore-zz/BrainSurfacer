@@ -1,5 +1,6 @@
 import AppKit
 import BrainSurfacerCore
+import BrainSurfacerFilesystem
 import BrainSurfacerModel
 import Foundation
 
@@ -38,74 +39,6 @@ public enum DocumentOpeningFailure: LocalizedError, Sendable {
     }
 }
 
-public struct SecurityScopedBookmarkDocumentAccess: DocumentAccessProvider {
-    private let suiteName: String?
-
-    public init(suiteName: String? = nil) {
-        self.suiteName = suiteName
-    }
-
-    public func performWithAccess(
-        to documentURL: URL,
-        operation: @escaping @Sendable () async throws -> Void
-    ) async throws {
-        let suiteName = self.suiteName
-        let bookmarks: [Data] = await MainActor.run {
-            let defaults = suiteName.flatMap(UserDefaults.init(suiteName:))
-                ?? .standard
-            return defaults.array(
-                forKey: SourceEnrollmentSettings.bookmarkStorageKey
-            ) as? [Data] ?? []
-        }
-        let roots = bookmarks.compactMap(Self.resolveBookmark)
-
-        guard let root = Self.enclosingRoot(
-            for: documentURL,
-            among: roots
-        ) else {
-            // Files inside the app container and other unrestricted locations
-            // do not need an enrollment bookmark.
-            try await operation()
-            return
-        }
-
-        let didStartAccess = root.startAccessingSecurityScopedResource()
-        defer {
-            if didStartAccess {
-                root.stopAccessingSecurityScopedResource()
-            }
-        }
-        try await operation()
-    }
-
-    static func enclosingRoot(for documentURL: URL, among roots: [URL]) -> URL? {
-        let documentComponents = documentURL.standardizedFileURL.pathComponents
-        return roots
-            .map(\.standardizedFileURL)
-            .filter { root in
-                let rootComponents = root.pathComponents
-                guard rootComponents.count <= documentComponents.count else {
-                    return false
-                }
-                return documentComponents.prefix(rootComponents.count)
-                    .elementsEqual(rootComponents)
-            }
-            .max { first, second in
-                first.pathComponents.count < second.pathComponents.count
-            }
-    }
-
-    private static func resolveBookmark(_ bookmark: Data) -> URL? {
-        var isStale = false
-        return try? URL(
-            resolvingBookmarkData: bookmark,
-            options: [.withSecurityScope, .withoutUI],
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        )
-    }
-}
-
 /// The app-wide opener. It reads the current preference for each request so
 /// App Intents and the running app always use the same routing policy.
 public struct ConfiguredDocumentOpener: DocumentOpener {
@@ -113,7 +46,7 @@ public struct ConfiguredDocumentOpener: DocumentOpener {
     private let accessProvider: any DocumentAccessProvider
 
     public init(
-        accessProvider: any DocumentAccessProvider = SecurityScopedBookmarkDocumentAccess()
+        accessProvider: any DocumentAccessProvider = SourceDirectoryStore()
     ) {
         self.accessProvider = accessProvider
     }

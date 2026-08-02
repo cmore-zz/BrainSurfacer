@@ -164,29 +164,6 @@ func editorRequestsPreserveTheBestAvailableSourceAnchor() throws {
 }
 
 @Test
-func securityScopedAccessSelectsTheMostSpecificEnclosingSource() {
-    let broadRoot = URL(fileURLWithPath: "/Users/example/Notes")
-    let nestedRoot = URL(fileURLWithPath: "/Users/example/Notes/Projects")
-    let lookalikeRoot = URL(fileURLWithPath: "/Users/example/Notebook")
-    let document = URL(
-        fileURLWithPath: "/Users/example/Notes/Projects/Launch/Plan.md"
-    )
-
-    let root = SecurityScopedBookmarkDocumentAccess.enclosingRoot(
-        for: document,
-        among: [broadRoot, lookalikeRoot, nestedRoot]
-    )
-
-    #expect(root == nestedRoot)
-    #expect(
-        SecurityScopedBookmarkDocumentAccess.enclosingRoot(
-            for: URL(fileURLWithPath: "/Users/example/Notes-old/Plan.md"),
-            among: [broadRoot]
-        ) == nil
-    )
-}
-
-@Test
 func configuredOpenerChecksTheSourceInsideItsAccessLease() async throws {
     let source = URL(
         fileURLWithPath: "/missing/\(UUID().uuidString)/Document.md"

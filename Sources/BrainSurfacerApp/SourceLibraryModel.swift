@@ -62,7 +62,7 @@ final class SourceLibraryModel {
         )
         openingCoordinator = EntityOpeningCoordinator(
             catalog: catalog,
-            openers: [ConfiguredDocumentOpener()]
+            openers: [ConfiguredDocumentOpener(accessProvider: store)]
         )
         Task {
             sources = await store.load()

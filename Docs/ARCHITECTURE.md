@@ -34,11 +34,14 @@ makes four distinctions explicit:
 BrainSurfacerApp
     ├── BrainSurfacerCore ──> BrainSurfacerModel
     ├── BrainSurfacerFilesystem ──> BrainSurfacerCore ──> BrainSurfacerModel
-    └── BrainSurfacerApple ──> BrainSurfacerCore ──> BrainSurfacerModel
+    └── BrainSurfacerApple ──> BrainSurfacerFilesystem
+                └────────────> BrainSurfacerCore ──> BrainSurfacerModel
 ```
 
-Dependencies only point inward. Filesystem, Apple frameworks, editor protocols,
-and UI can be replaced independently.
+Dependencies only point inward. The filesystem layer owns enrolled-source
+bookmark persistence, refresh, and access leases; the Apple layer composes
+those leases with platform openers instead of implementing a second bookmark
+reader.
 
 ## Layers
 
@@ -178,10 +181,12 @@ closest line and column. A failed or stale editor preference falls back to the
 system default. Editor-specific probes do not present a system app-picker;
 only the terminal default-app path prompts the user if macOS needs help. Before
 checking or dispatching a source file, the opener
-resolves the saved bookmark for the most-specific enrolled parent directory and
-holds its security-scoped access for the complete operation. This makes the
-same sandbox permission available to UI and App Intent opens without keeping
-source roots permanently active. The system `ShowInAppSearchResultsIntent`
+loads the same configurable enrollment store used by source management,
+refreshes stale saved bookmarks, selects the most-specific enrolled parent
+directory, and holds its security-scoped access for the complete operation.
+This makes the same sandbox permission available to UI and App Intent opens
+without keeping source roots permanently active. The system
+`ShowInAppSearchResultsIntent`
 persists its term long enough for app launch and presents the same
 Spotlight-backed Index search UI; an in-process notification handles an
 already-running app.
