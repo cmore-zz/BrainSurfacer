@@ -9,6 +9,7 @@ public actor SourceChangeCoalescer {
     private let handler: Handler
     private var pendingSourceURLs: Set<URL> = []
     private var debounceTask: Task<Void, Never>?
+    private var debounceGeneration = 0
     private var isHandling = false
 
     public init(
@@ -28,6 +29,7 @@ public actor SourceChangeCoalescer {
     }
 
     public func cancel() {
+        debounceGeneration &+= 1
         debounceTask?.cancel()
         debounceTask = nil
         pendingSourceURLs.removeAll()
@@ -35,10 +37,13 @@ public actor SourceChangeCoalescer {
 
     private func scheduleDebounce() {
         debounceTask?.cancel()
-        debounceTask = Task { [weak self, delay] in
+        debounceGeneration &+= 1
+        let generation = debounceGeneration
+        debounceTask = Task { [weak self, delay, generation] in
             do {
                 try await Task.sleep(for: delay)
-                await self?.drain()
+                try Task.checkCancellation()
+                await self?.drain(generation: generation)
             } catch is CancellationError {
                 // A later event restarted the debounce window.
             } catch {
@@ -47,7 +52,10 @@ public actor SourceChangeCoalescer {
         }
     }
 
-    private func drain() async {
+    private func drain(generation: Int) async {
+        guard generation == debounceGeneration else {
+            return
+        }
         debounceTask = nil
         guard !isHandling, !pendingSourceURLs.isEmpty else {
             return
