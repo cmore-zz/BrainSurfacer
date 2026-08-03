@@ -25,6 +25,25 @@ public actor SourceReconciler {
         defer { endOperation() }
         try Task.checkCancellation()
 
+        if source.indexingMode == .paused {
+            let result = SourceScanResult(
+                source: source,
+                fileCount: 0,
+                parsedFileCount: 0,
+                entities: [],
+                diagnostics: [],
+                fingerprints: [:]
+            )
+            do {
+                try await coordinator.replaceEntities(from: source.url, with: [])
+            } catch {
+                try? await fingerprintStore.removeFingerprints(for: source.url)
+                throw error
+            }
+            try? await fingerprintStore.removeFingerprints(for: source.url)
+            return result
+        }
+
         let previousFingerprints = await fingerprintStore.fingerprints(
             for: source.url
         )

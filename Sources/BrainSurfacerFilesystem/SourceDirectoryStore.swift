@@ -5,21 +5,24 @@ public struct SourceDirectory: Identifiable, Hashable, Sendable {
     public var id: String
     public var url: URL
     public var pathPolicy: SourcePathPolicy
+    public var indexingMode: SourceIndexingMode
 
     public init(
         url: URL,
-        pathPolicy: SourcePathPolicy = SourcePathPolicy()
+        pathPolicy: SourcePathPolicy = SourcePathPolicy(),
+        indexingMode: SourceIndexingMode = .fullContent
     ) {
         let url = url.standardizedFileURL
         id = url.path
         self.url = url
         self.pathPolicy = pathPolicy
+        self.indexingMode = indexingMode
     }
 }
 
-/// Persists enrolled source roots and their path policies together, and leases
-/// their security-scoped access. Loading also replaces stale bookmarks before
-/// returning resolved URLs without detaching their policies.
+/// Persists enrolled source roots, path policies, and indexing modes together,
+/// and leases their security-scoped access. Loading also replaces stale
+/// bookmarks before returning resolved URLs without detaching their settings.
 public actor SourceDirectoryStore: DocumentAccessProvider {
     public enum Error: LocalizedError {
         case notDirectory(URL)
@@ -130,7 +133,8 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
                 PersistedSourceEnrollment(
                     identifier: UUID(),
                     bookmark: bookmark,
-                    pathPolicy: SourcePathPolicy()
+                    pathPolicy: SourcePathPolicy(),
+                    indexingMode: .fullContent
                 )
             )
         }
@@ -151,6 +155,30 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
         _ pathPolicy: SourcePathPolicy,
         for source: SourceDirectory
     ) -> [SourceDirectory] {
+        updateEnrollment(
+            pathPolicy: pathPolicy,
+            indexingMode: nil,
+            for: source
+        )
+    }
+
+    public func updateConfiguration(
+        pathPolicy: SourcePathPolicy,
+        indexingMode: SourceIndexingMode,
+        for source: SourceDirectory
+    ) -> [SourceDirectory] {
+        updateEnrollment(
+            pathPolicy: pathPolicy,
+            indexingMode: indexingMode,
+            for: source
+        )
+    }
+
+    private func updateEnrollment(
+        pathPolicy: SourcePathPolicy,
+        indexingMode: SourceIndexingMode?,
+        for source: SourceDirectory
+    ) -> [SourceDirectory] {
         var enrollments = loadEnrollments()
         var didChange = false
         for index in enrollments.indices {
@@ -158,10 +186,13 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
                 .url.standardizedFileURL.path == source.id else {
                 continue
             }
-            guard enrollments[index].pathPolicy != pathPolicy else {
+            let updatedMode = indexingMode ?? enrollments[index].indexingMode
+            guard enrollments[index].pathPolicy != pathPolicy
+                    || enrollments[index].indexingMode != updatedMode else {
                 continue
             }
             enrollments[index].pathPolicy = pathPolicy
+            enrollments[index].indexingMode = updatedMode
             didChange = true
         }
         if didChange {
@@ -183,7 +214,8 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
             }
             let source = SourceDirectory(
                 url: resolved.url,
-                pathPolicy: enrollment.pathPolicy
+                pathPolicy: enrollment.pathPolicy,
+                indexingMode: enrollment.indexingMode
             )
             guard seen.insert(source.id).inserted else {
                 continue
@@ -196,7 +228,8 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
                     PersistedSourceEnrollment(
                         identifier: enrollment.identifier,
                         bookmark: refreshed,
-                        pathPolicy: enrollment.pathPolicy
+                        pathPolicy: enrollment.pathPolicy,
+                        indexingMode: enrollment.indexingMode
                     )
                 )
             } else {
@@ -254,7 +287,8 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
             PersistedSourceEnrollment(
                 identifier: UUID(),
                 bookmark: $0,
-                pathPolicy: SourcePathPolicy()
+                pathPolicy: SourcePathPolicy(),
+                indexingMode: .fullContent
             )
         }
         if !legacyBookmarks.isEmpty {
@@ -273,7 +307,7 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
 }
 
 private struct PersistedSourceEnrollmentState: Codable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     var schemaVersion = Self.currentSchemaVersion
     var enrollments: [PersistedSourceEnrollment]
@@ -283,4 +317,38 @@ private struct PersistedSourceEnrollment: Codable, Equatable {
     var identifier: UUID
     var bookmark: Data
     var pathPolicy: SourcePathPolicy
+    var indexingMode: SourceIndexingMode
+
+    private enum CodingKeys: String, CodingKey {
+        case identifier
+        case bookmark
+        case pathPolicy
+        case indexingMode
+    }
+
+    init(
+        identifier: UUID,
+        bookmark: Data,
+        pathPolicy: SourcePathPolicy,
+        indexingMode: SourceIndexingMode
+    ) {
+        self.identifier = identifier
+        self.bookmark = bookmark
+        self.pathPolicy = pathPolicy
+        self.indexingMode = indexingMode
+    }
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        identifier = try values.decode(UUID.self, forKey: .identifier)
+        bookmark = try values.decode(Data.self, forKey: .bookmark)
+        pathPolicy = try values.decodeIfPresent(
+            SourcePathPolicy.self,
+            forKey: .pathPolicy
+        ) ?? SourcePathPolicy()
+        indexingMode = try values.decodeIfPresent(
+            SourceIndexingMode.self,
+            forKey: .indexingMode
+        ) ?? .fullContent
+    }
 }

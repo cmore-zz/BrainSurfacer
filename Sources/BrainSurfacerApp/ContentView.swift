@@ -137,7 +137,7 @@ private struct SourcesView: View {
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
-                            Text(source.pathPolicy.displaySummary)
+                            Text(source.indexingConfigurationSummary)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -151,8 +151,8 @@ private struct SourcesView: View {
                             Image(systemName: "line.3.horizontal.decrease.circle")
                         }
                         .buttonStyle(.borderless)
-                        .accessibilityLabel("Edit indexing rules")
-                        .help("Edit indexing rules")
+                        .accessibilityLabel("Edit indexing settings")
+                        .help("Edit indexing settings")
                         Button {
                             model.remove(source)
                         } label: {
@@ -164,7 +164,7 @@ private struct SourcesView: View {
                     }
                     .padding(.vertical, 4)
                     .contextMenu {
-                        Button("Edit Indexing Rules…") {
+                        Button("Edit Indexing Settings…") {
                             editingSource = source
                         }
                         Button("Remove Source", role: .destructive) {
@@ -194,26 +194,32 @@ private struct SourcesView: View {
             }
         }
         .sheet(item: $editingSource) { source in
-            SourcePathPolicyEditor(source: source) { policy in
-                model.updatePathPolicy(policy, for: source)
+            SourceIndexingSettingsEditor(source: source) { policy, mode in
+                model.updateSourceConfiguration(
+                    pathPolicy: policy,
+                    indexingMode: mode,
+                    for: source
+                )
             }
         }
     }
 }
 
-private struct SourcePathPolicyEditor: View {
+private struct SourceIndexingSettingsEditor: View {
     @Environment(\.dismiss) private var dismiss
     let source: SourceDirectory
-    let onSave: (SourcePathPolicy) -> Void
+    let onSave: (SourcePathPolicy, SourceIndexingMode) -> Void
+    @State private var indexingMode: SourceIndexingMode
     @State private var includePatterns: String
     @State private var excludePatterns: String
 
     init(
         source: SourceDirectory,
-        onSave: @escaping (SourcePathPolicy) -> Void
+        onSave: @escaping (SourcePathPolicy, SourceIndexingMode) -> Void
     ) {
         self.source = source
         self.onSave = onSave
+        _indexingMode = State(initialValue: source.indexingMode)
         _includePatterns = State(
             initialValue: source.pathPolicy.includePatterns.joined(separator: "\n")
         )
@@ -231,6 +237,17 @@ private struct SourcePathPolicyEditor: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
+                }
+
+                Section("Indexing mode") {
+                    Picker("Mode", selection: $indexingMode) {
+                        ForEach(SourceIndexingMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    Text(indexingMode.explanation)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Include patterns") {
@@ -257,7 +274,7 @@ private struct SourcePathPolicyEditor: View {
                 }
             }
             .formStyle(.grouped)
-            .navigationTitle("Indexing Rules")
+            .navigationTitle("Indexing Settings")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -270,7 +287,8 @@ private struct SourcePathPolicyEditor: View {
                             SourcePathPolicy(
                                 includePatterns: patternLines(includePatterns),
                                 excludePatterns: patternLines(excludePatterns)
-                            )
+                            ),
+                            indexingMode
                         )
                         dismiss()
                     }
@@ -283,6 +301,36 @@ private struct SourcePathPolicyEditor: View {
 
     private func patternLines(_ text: String) -> [String] {
         text.components(separatedBy: .newlines)
+    }
+}
+
+private extension SourceDirectory {
+    var indexingConfigurationSummary: String {
+        indexingMode.displayName + " · " + pathPolicy.displaySummary
+    }
+}
+
+private extension SourceIndexingMode {
+    var displayName: String {
+        switch self {
+        case .fullContent:
+            "Full content"
+        case .metadataOnly:
+            "Titles and metadata"
+        case .paused:
+            "Paused"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .fullContent:
+            "Index titles, structure, metadata, summaries, and searchable body text."
+        case .metadataOnly:
+            "Index titles, structure, tags, dates, and source anchors without body text, summaries, or links."
+        case .paused:
+            "Keep this source enrolled but remove its derived catalog, fingerprints, and Spotlight entries."
+        }
     }
 }
 
@@ -443,6 +491,9 @@ private struct IndexView: View {
                     + (status.diagnosticCount == 0 ? "" : " · \(status.diagnosticCount) diagnostics")
             )
             .foregroundStyle(.secondary)
+        case .paused:
+            Text("Indexing paused · derived data removed")
+                .foregroundStyle(.secondary)
         case let .failed(message):
             Text(message)
                 .foregroundStyle(.red)
@@ -504,6 +555,11 @@ private struct SourceStatusLabel: View {
                 .foregroundStyle(.green)
                 .labelStyle(.iconOnly)
                 .help("Indexed")
+        case .paused:
+            Label("Paused", systemImage: "pause.circle.fill")
+                .foregroundStyle(.secondary)
+                .labelStyle(.iconOnly)
+                .help("Indexing paused")
         case .failed:
             Label("Indexing failed", systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
