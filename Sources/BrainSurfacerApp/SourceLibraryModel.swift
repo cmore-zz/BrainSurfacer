@@ -135,6 +135,9 @@ final class SourceLibraryModel {
         _ pathPolicy: SourcePathPolicy,
         for source: SourceDirectory
     ) {
+        guard pathPolicy != source.pathPolicy else {
+            return
+        }
         Task {
             sources = await store.updatePathPolicy(pathPolicy, for: source)
             guard let updatedSource = sources.first(where: { $0.id == source.id }) else {
