@@ -121,8 +121,17 @@ so actor reentrancy cannot interleave startup, manual, enrollment, removal, and
 event-driven work across suspension points. FSEvents decides when to reconcile,
 while persisted fingerprints still decide which files need parsing, so
 rename/delete confirmation and the last-known-good failure contract remain
-centralized in the scanner. Bounded parallel parsing can feed the same
-reconciler later without changing that contract.
+centralized in the scanner. After synchronous enumeration and unchanged-file
+reuse, the scanner feeds changed files through a task group with a configured
+active read/parse limit (four by default). It adds one pending file only when
+another finishes and folds each result immediately, which bounds executor and
+intermediate-result pressure even for very large roots. Cancellation is checked
+during enumeration, before and after each file read, and before projection
+mutation; cancellation errors escape instead of being mistaken for file
+failures. Completed results are still sorted before publication, so completion
+order cannot change the projection. An opt-in integration test exercises an
+initial and unchanged incremental scan over 20,000 notes; set
+`BRAINSURFACER_RUN_SCALE_TESTS=1` to include it.
 
 The production catalog is a versioned, rebuildable JSON projection in
 Application Support. It preserves source membership, canonical entities,

@@ -51,17 +51,45 @@ public struct SourceDirectoryScanner: Sendable {
         }
     }
 
-    private let parser: OutlineParser
+    private let maximumConcurrentFileParses: Int
+    private let fileParser: @Sendable (SourceFileParseRequest) async throws -> [KnowledgeEntity]
 
-    public init(parser: OutlineParser = OutlineParser()) {
-        self.parser = parser
+    public init(
+        parser: OutlineParser = OutlineParser(),
+        maximumConcurrentFileParses: Int = 4
+    ) {
+        self.maximumConcurrentFileParses = max(1, maximumConcurrentFileParses)
+        self.fileParser = { request in
+            try Task.checkCancellation()
+            let contents = try String(
+                contentsOf: request.fileURL,
+                encoding: .utf8
+            )
+            try Task.checkCancellation()
+            return parser.parse(
+                SourceDocument(
+                    fileURL: request.fileURL,
+                    format: request.format,
+                    contents: contents,
+                    modifiedAt: request.modifiedAt
+                )
+            )
+        }
+    }
+
+    init(
+        maximumConcurrentFileParses: Int,
+        fileParser: @escaping @Sendable (SourceFileParseRequest) async throws -> [KnowledgeEntity]
+    ) {
+        self.maximumConcurrentFileParses = max(1, maximumConcurrentFileParses)
+        self.fileParser = fileParser
     }
 
     public func scan(
         _ source: SourceDirectory,
         previousFingerprints: [URL: SourceFileFingerprint] = [:],
         previousEntities: [KnowledgeEntity] = []
-    ) throws -> SourceScanResult {
+    ) async throws -> SourceScanResult {
         let root = source.url
         let didStartAccess = root.startAccessingSecurityScopedResource()
         defer {
@@ -70,20 +98,77 @@ public struct SourceDirectoryScanner: Sendable {
             }
         }
 
+        let previousFingerprints = Dictionary(
+            previousFingerprints.map { ($0.key.standardizedFileURL, $0.value) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        let previousEntitiesByFile = Dictionary(
+            grouping: previousEntities,
+            by: { $0.source.fileURL.standardizedFileURL }
+        )
+        var enumeration = try enumerateFiles(
+            at: root,
+            previousFingerprints: previousFingerprints,
+            previousEntitiesByFile: previousEntitiesByFile
+        )
+        try Task.checkCancellation()
+        let parsedFiles = try await parseFiles(enumeration.pendingFiles)
+        enumeration.entities.append(contentsOf: parsedFiles.entities)
+        enumeration.fingerprints.merge(
+            parsedFiles.fingerprints,
+            uniquingKeysWith: { _, latest in latest }
+        )
+        enumeration.diagnostics.append(contentsOf: parsedFiles.diagnostics)
+
+        if !enumeration.wasComplete {
+            let previouslyKnownFiles = Set(previousFingerprints.keys)
+                .union(previousEntitiesByFile.keys)
+            for fileURL in previouslyKnownFiles.subtracting(enumeration.seenFiles) {
+                enumeration.entities.append(
+                    contentsOf: previousEntitiesByFile[fileURL, default: []]
+                )
+                if let previousFingerprint = previousFingerprints[fileURL] {
+                    enumeration.fingerprints[fileURL] = previousFingerprint
+                }
+                enumeration.fileCount += 1
+            }
+        }
+
+        enumeration.entities.sort(by: entitiesAreInDeterministicOrder)
+        enumeration.diagnostics.sort {
+            $0.fileURL.path.localizedStandardCompare($1.fileURL.path)
+                == .orderedAscending
+        }
+
+        return SourceScanResult(
+            source: source,
+            fileCount: enumeration.fileCount,
+            parsedFileCount: parsedFiles.parsedFileCount,
+            reusedFileCount: enumeration.reusedFileCount,
+            entities: enumeration.entities,
+            diagnostics: enumeration.diagnostics,
+            fingerprints: enumeration.fingerprints
+        )
+    }
+
+    private func enumerateFiles(
+        at root: URL,
+        previousFingerprints: [URL: SourceFileFingerprint],
+        previousEntitiesByFile: [URL: [KnowledgeEntity]]
+    ) throws -> SourceFileEnumeration {
         let resourceKeys: Set<URLResourceKey> = [
             .isRegularFileKey,
             .contentModificationDateKey,
             .fileSizeKey
         ]
-        var diagnostics: [SourceScanDiagnostic] = []
-        var enumerationWasComplete = true
+        var result = SourceFileEnumeration()
         guard let enumerator = FileManager.default.enumerator(
             at: root,
             includingPropertiesForKeys: Array(resourceKeys),
             options: [.skipsHiddenFiles, .skipsPackageDescendants],
             errorHandler: { fileURL, error in
-                enumerationWasComplete = false
-                diagnostics.append(
+                result.wasComplete = false
+                result.diagnostics.append(
                     SourceScanDiagnostic(
                         fileURL: fileURL,
                         message: error.localizedDescription
@@ -95,28 +180,13 @@ public struct SourceDirectoryScanner: Sendable {
             throw Error.cannotEnumerate(root)
         }
 
-        let previousFingerprints = Dictionary(
-            previousFingerprints.map { ($0.key.standardizedFileURL, $0.value) },
-            uniquingKeysWith: { _, latest in latest }
-        )
-        let previousEntitiesByFile = Dictionary(
-            grouping: previousEntities,
-            by: { $0.source.fileURL.standardizedFileURL }
-        )
-        var fileCount = 0
-        var parsedFileCount = 0
-        var reusedFileCount = 0
-        var entities: [KnowledgeEntity] = []
-        var fingerprints: [URL: SourceFileFingerprint] = [:]
-        var seenFiles: Set<URL> = []
-
         for case let candidateURL as URL in enumerator {
             try Task.checkCancellation()
             guard let format = format(for: candidateURL) else {
                 continue
             }
             let fileURL = candidateURL.standardizedFileURL
-            seenFiles.insert(fileURL)
+            result.seenFiles.insert(fileURL)
             let previousFileEntities = previousEntitiesByFile[fileURL, default: []]
 
             do {
@@ -124,35 +194,33 @@ public struct SourceDirectoryScanner: Sendable {
                 guard values.isRegularFile == true else {
                     continue
                 }
-                fileCount += 1
+                result.fileCount += 1
                 let currentFingerprint = fingerprint(from: values)
                 if let currentFingerprint,
                    currentFingerprint == previousFingerprints[fileURL],
                    !previousFileEntities.isEmpty {
-                    entities.append(contentsOf: previousFileEntities)
-                    fingerprints[fileURL] = currentFingerprint
-                    reusedFileCount += 1
+                    result.entities.append(contentsOf: previousFileEntities)
+                    result.fingerprints[fileURL] = currentFingerprint
+                    result.reusedFileCount += 1
                     continue
                 }
 
-                let contents = try String(contentsOf: fileURL, encoding: .utf8)
-                let document = SourceDocument(
-                    fileURL: fileURL,
-                    format: format,
-                    contents: contents,
-                    modifiedAt: values.contentModificationDate
+                result.pendingFiles.append(
+                    SourceFileParseRequest(
+                        fileURL: fileURL,
+                        format: format,
+                        modifiedAt: values.contentModificationDate,
+                        currentFingerprint: currentFingerprint,
+                        previousFingerprint: previousFingerprints[fileURL],
+                        previousEntities: previousFileEntities
+                    )
                 )
-                entities.append(contentsOf: parser.parse(document))
-                if let currentFingerprint {
-                    fingerprints[fileURL] = currentFingerprint
-                }
-                parsedFileCount += 1
             } catch {
-                entities.append(contentsOf: previousFileEntities)
+                result.entities.append(contentsOf: previousFileEntities)
                 if let previousFingerprint = previousFingerprints[fileURL] {
-                    fingerprints[fileURL] = previousFingerprint
+                    result.fingerprints[fileURL] = previousFingerprint
                 }
-                diagnostics.append(
+                result.diagnostics.append(
                     SourceScanDiagnostic(
                         fileURL: fileURL,
                         message: error.localizedDescription
@@ -161,33 +229,66 @@ public struct SourceDirectoryScanner: Sendable {
             }
         }
 
-        if !enumerationWasComplete {
-            let previouslyKnownFiles = Set(previousFingerprints.keys)
-                .union(previousEntitiesByFile.keys)
-            for fileURL in previouslyKnownFiles.subtracting(seenFiles) {
-                entities.append(contentsOf: previousEntitiesByFile[fileURL, default: []])
-                if let previousFingerprint = previousFingerprints[fileURL] {
-                    fingerprints[fileURL] = previousFingerprint
+        return result
+    }
+
+    private func parseFiles(
+        _ requests: [SourceFileParseRequest]
+    ) async throws -> SourceFileParseBatch {
+        guard !requests.isEmpty else {
+            return SourceFileParseBatch()
+        }
+
+        return try await withThrowingTaskGroup(
+            of: SourceFileParseOutcome.self
+        ) { group in
+            let initialCount = min(maximumConcurrentFileParses, requests.count)
+            for request in requests.prefix(initialCount) {
+                group.addTask {
+                    try await parseFile(request)
                 }
-                fileCount += 1
             }
-        }
 
-        entities.sort { $0.id.rawValue < $1.id.rawValue }
-        diagnostics.sort {
-            $0.fileURL.path.localizedStandardCompare($1.fileURL.path)
-                == .orderedAscending
+            var nextIndex = initialCount
+            var batch = SourceFileParseBatch()
+            while let outcome = try await group.next() {
+                batch.record(outcome)
+                if nextIndex < requests.count {
+                    try Task.checkCancellation()
+                    let request = requests[nextIndex]
+                    nextIndex += 1
+                    group.addTask {
+                        try await parseFile(request)
+                    }
+                }
+            }
+            return batch
         }
+    }
 
-        return SourceScanResult(
-            source: source,
-            fileCount: fileCount,
-            parsedFileCount: parsedFileCount,
-            reusedFileCount: reusedFileCount,
-            entities: entities,
-            diagnostics: diagnostics,
-            fingerprints: fingerprints
-        )
+    private func parseFile(
+        _ request: SourceFileParseRequest
+    ) async throws -> SourceFileParseOutcome {
+        do {
+            try Task.checkCancellation()
+            let parsedEntities = try await fileParser(request)
+            try Task.checkCancellation()
+            return SourceFileParseOutcome(
+                fileURL: request.fileURL,
+                entities: parsedEntities,
+                fingerprint: request.currentFingerprint,
+                diagnosticMessage: nil
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return SourceFileParseOutcome(
+                fileURL: request.fileURL,
+                entities: request.previousEntities,
+                fingerprint: request.previousFingerprint,
+                diagnosticMessage: error.localizedDescription
+            )
+        }
     }
 
     private func fingerprint(from values: URLResourceValues) -> SourceFileFingerprint? {
@@ -201,6 +302,44 @@ public struct SourceDirectoryScanner: Sendable {
         )
     }
 
+    private func entitiesAreInDeterministicOrder(
+        _ lhs: KnowledgeEntity,
+        _ rhs: KnowledgeEntity
+    ) -> Bool {
+        if lhs.id.rawValue != rhs.id.rawValue {
+            return lhs.id.rawValue < rhs.id.rawValue
+        }
+
+        let lhsPath = lhs.source.fileURL.standardizedFileURL.path
+        let rhsPath = rhs.source.fileURL.standardizedFileURL.path
+        if lhsPath != rhsPath {
+            return lhsPath < rhsPath
+        }
+
+        let lhsOffset = lhs.source.byteOffset ?? -1
+        let rhsOffset = rhs.source.byteOffset ?? -1
+        if lhsOffset != rhsOffset {
+            return lhsOffset < rhsOffset
+        }
+
+        let lhsLine = lhs.source.line ?? -1
+        let rhsLine = rhs.source.line ?? -1
+        if lhsLine != rhsLine {
+            return lhsLine < rhsLine
+        }
+
+        let lhsColumn = lhs.source.column ?? -1
+        let rhsColumn = rhs.source.column ?? -1
+        if lhsColumn != rhsColumn {
+            return lhsColumn < rhsColumn
+        }
+
+        if lhs.kind.rawValue != rhs.kind.rawValue {
+            return lhs.kind.rawValue < rhs.kind.rawValue
+        }
+        return lhs.title < rhs.title
+    }
+
     private func format(for fileURL: URL) -> SourceDocument.Format? {
         switch fileURL.pathExtension.lowercased() {
         case "md", "markdown":
@@ -209,6 +348,57 @@ public struct SourceDirectoryScanner: Sendable {
             .org
         default:
             nil
+        }
+    }
+}
+
+struct SourceFileParseRequest: Sendable {
+    let fileURL: URL
+    let format: SourceDocument.Format
+    let modifiedAt: Date?
+    let currentFingerprint: SourceFileFingerprint?
+    let previousFingerprint: SourceFileFingerprint?
+    let previousEntities: [KnowledgeEntity]
+}
+
+private struct SourceFileEnumeration {
+    var fileCount = 0
+    var reusedFileCount = 0
+    var entities: [KnowledgeEntity] = []
+    var diagnostics: [SourceScanDiagnostic] = []
+    var fingerprints: [URL: SourceFileFingerprint] = [:]
+    var seenFiles: Set<URL> = []
+    var pendingFiles: [SourceFileParseRequest] = []
+    var wasComplete = true
+}
+
+private struct SourceFileParseOutcome: Sendable {
+    let fileURL: URL
+    let entities: [KnowledgeEntity]
+    let fingerprint: SourceFileFingerprint?
+    let diagnosticMessage: String?
+}
+
+private struct SourceFileParseBatch {
+    var parsedFileCount = 0
+    var entities: [KnowledgeEntity] = []
+    var diagnostics: [SourceScanDiagnostic] = []
+    var fingerprints: [URL: SourceFileFingerprint] = [:]
+
+    mutating func record(_ outcome: SourceFileParseOutcome) {
+        entities.append(contentsOf: outcome.entities)
+        if let fingerprint = outcome.fingerprint {
+            fingerprints[outcome.fileURL] = fingerprint
+        }
+        if let diagnosticMessage = outcome.diagnosticMessage {
+            diagnostics.append(
+                SourceScanDiagnostic(
+                    fileURL: outcome.fileURL,
+                    message: diagnosticMessage
+                )
+            )
+        } else {
+            parsedFileCount += 1
         }
     }
 }

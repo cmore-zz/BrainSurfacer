@@ -63,7 +63,7 @@ invariants.
 - Retain the last-known-good projection for unreadable or malformed files;
   remove entities only for confirmed deletions. *(implemented)*
 - Add cancellation, backpressure, bounded parallel parsing, and scale tests over
-  tens of thousands of notes.
+  tens of thousands of notes. *(implemented)*
 
 ## 7. Privacy, enrollment, and protected indexes
 

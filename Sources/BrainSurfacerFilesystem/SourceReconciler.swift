@@ -29,7 +29,7 @@ public actor SourceReconciler {
             for: source.url
         )
         let previousEntities = try await coordinator.entities(from: source.url)
-        let result = try scanner.scan(
+        let result = try await scanner.scan(
             source,
             previousFingerprints: previousFingerprints,
             previousEntities: previousEntities
