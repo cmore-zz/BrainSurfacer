@@ -65,9 +65,10 @@ invariants.
 - Add cancellation, backpressure, bounded parallel parsing, and scale tests over
   tens of thousands of notes. *(implemented)*
 
-## 7. Privacy, enrollment, and protected indexes
+## 7. Privacy, enrollment, and protected indexes *(in progress)*
 
-- Add per-source include/exclude patterns and source-level indexing modes.
+- Add per-source include/exclude patterns. *(implemented)*
+- Add source-level indexing modes.
 - Support document metadata that explicitly opts content out of indexing.
 - Separate Spotlight/Siri enrollment from BrainSurfacer-local discovery.
 - Evaluate protected Core Spotlight indexes and make every derived copy visible

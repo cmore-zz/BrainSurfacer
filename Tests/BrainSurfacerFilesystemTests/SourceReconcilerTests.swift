@@ -42,6 +42,47 @@ func reconciliationCommitsFingerprintsAfterIndexingAndRemovesConfirmedDeletions(
 }
 
 @Test
+func reconciliationRemovesFilesExcludedByAChangedSourcePolicy() async throws {
+    let fixture = try ReconciliationFixture()
+    defer { fixture.remove() }
+
+    let retainedFile = fixture.source.url.appending(path: "Retained.md")
+    let excludedFile = fixture.source.url.appending(path: "Excluded.md")
+    try "# Retained".write(to: retainedFile, atomically: true, encoding: .utf8)
+    try "# Excluded".write(to: excludedFile, atomically: true, encoding: .utf8)
+
+    let catalog = InMemoryEntityCatalog()
+    let index = ReconciliationRecordingIndex()
+    let fingerprints = SourceFingerprintStore(storageURL: fixture.fingerprintURL)
+    let reconciler = SourceReconciler(
+        fingerprintStore: fingerprints,
+        coordinator: IndexingCoordinator(catalog: catalog, permanentIndex: index)
+    )
+
+    _ = try await reconciler.reconcile(fixture.source)
+    let initiallyIndexed = await catalog.entities(from: fixture.source.url)
+    let excludedIDs = Set(initiallyIndexed.filter {
+        $0.source.fileURL.standardizedFileURL == excludedFile.standardizedFileURL
+    }.map(\.id))
+    #expect(!excludedIDs.isEmpty)
+    let filteredSource = SourceDirectory(
+        url: fixture.source.url,
+        pathPolicy: SourcePathPolicy(excludePatterns: ["Excluded.md"])
+    )
+    let filtered = try await reconciler.reconcile(filteredSource)
+    let remaining = await catalog.entities(from: fixture.source.url)
+    let policyChange = try #require(await index.changes.last)
+
+    #expect(filtered.fileCount == 1)
+    #expect(filtered.reusedFileCount == 1)
+    #expect(filtered.fingerprints.count == 1)
+    #expect(remaining.allSatisfy {
+        $0.source.fileURL.standardizedFileURL == retainedFile.standardizedFileURL
+    })
+    #expect(policyChange.removals == excludedIDs)
+}
+
+@Test
 func failedIndexingDoesNotCommitNewFingerprints() async throws {
     let fixture = try ReconciliationFixture()
     defer { fixture.remove() }

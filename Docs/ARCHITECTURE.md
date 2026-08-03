@@ -65,6 +65,17 @@ semantic entities and diagnostics. They must retain enough source structure to
 support headings, hierarchy, tags, links, timestamps, TODO states, properties,
 source blocks, and attachments.
 
+Each enrollment is a versioned record that keeps its security-scoped bookmark
+and path policy together, so bookmark refreshes and source-root moves cannot
+detach privacy rules from the approved source. Existing bookmark arrays migrate
+to unrestricted records. Include and exclude rules are root-relative globs;
+`*` and `?` match within a path component, `**` spans directories, an empty
+include list admits every supported file, and exclusions always win. The
+scanner applies the policy before fingerprinting or reading a file. A policy
+change therefore flows through ordinary reconciliation: newly excluded files
+lose their catalog, fingerprint, and platform projections even if enumeration
+is incomplete, while newly included files are parsed on the next pass.
+
 The included `OutlineParser` indexes a document plus Markdown and Org outline
 entities. A section body contains only prose before its first child or sibling
 heading; child prose belongs to the child entity and is not duplicated into its

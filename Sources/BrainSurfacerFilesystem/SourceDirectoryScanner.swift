@@ -52,36 +52,50 @@ public struct SourceDirectoryScanner: Sendable {
     }
 
     private let maximumConcurrentFileParses: Int
+    private let enumerationSnapshot: SourceDirectoryEnumerationSnapshot?
     private let fileParser: @Sendable (SourceFileParseRequest) async throws -> [KnowledgeEntity]
 
     public init(
         parser: OutlineParser = OutlineParser(),
         maximumConcurrentFileParses: Int = 4
     ) {
-        self.maximumConcurrentFileParses = max(1, maximumConcurrentFileParses)
-        self.fileParser = { request in
-            try Task.checkCancellation()
-            let contents = try String(
-                contentsOf: request.fileURL,
-                encoding: .utf8
-            )
-            try Task.checkCancellation()
-            return parser.parse(
-                SourceDocument(
-                    fileURL: request.fileURL,
-                    format: request.format,
-                    contents: contents,
-                    modifiedAt: request.modifiedAt
-                )
-            )
-        }
+        self.init(
+            maximumConcurrentFileParses: maximumConcurrentFileParses,
+            enumerationSnapshot: nil,
+            fileParser: Self.productionFileParser(parser: parser)
+        )
     }
 
     init(
         maximumConcurrentFileParses: Int,
         fileParser: @escaping @Sendable (SourceFileParseRequest) async throws -> [KnowledgeEntity]
     ) {
+        self.init(
+            maximumConcurrentFileParses: maximumConcurrentFileParses,
+            enumerationSnapshot: nil,
+            fileParser: fileParser
+        )
+    }
+
+    init(
+        parser: OutlineParser = OutlineParser(),
+        maximumConcurrentFileParses: Int = 4,
+        enumerationSnapshot: SourceDirectoryEnumerationSnapshot
+    ) {
+        self.init(
+            maximumConcurrentFileParses: maximumConcurrentFileParses,
+            enumerationSnapshot: enumerationSnapshot,
+            fileParser: Self.productionFileParser(parser: parser)
+        )
+    }
+
+    private init(
+        maximumConcurrentFileParses: Int,
+        enumerationSnapshot: SourceDirectoryEnumerationSnapshot?,
+        fileParser: @escaping @Sendable (SourceFileParseRequest) async throws -> [KnowledgeEntity]
+    ) {
         self.maximumConcurrentFileParses = max(1, maximumConcurrentFileParses)
+        self.enumerationSnapshot = enumerationSnapshot
         self.fileParser = fileParser
     }
 
@@ -108,6 +122,7 @@ public struct SourceDirectoryScanner: Sendable {
         )
         var enumeration = try enumerateFiles(
             at: root,
+            pathPolicy: source.pathPolicy,
             previousFingerprints: previousFingerprints,
             previousEntitiesByFile: previousEntitiesByFile
         )
@@ -124,6 +139,10 @@ public struct SourceDirectoryScanner: Sendable {
             let previouslyKnownFiles = Set(previousFingerprints.keys)
                 .union(previousEntitiesByFile.keys)
             for fileURL in previouslyKnownFiles.subtracting(enumeration.seenFiles) {
+                guard let relativePath = relativePath(of: fileURL, from: root),
+                      source.pathPolicy.includes(relativePath: relativePath) else {
+                    continue
+                }
                 enumeration.entities.append(
                     contentsOf: previousEntitiesByFile[fileURL, default: []]
                 )
@@ -153,15 +172,34 @@ public struct SourceDirectoryScanner: Sendable {
 
     private func enumerateFiles(
         at root: URL,
+        pathPolicy: SourcePathPolicy,
         previousFingerprints: [URL: SourceFileFingerprint],
         previousEntitiesByFile: [URL: [KnowledgeEntity]]
     ) throws -> SourceFileEnumeration {
         let resourceKeys: Set<URLResourceKey> = [
             .isRegularFileKey,
+            .isSymbolicLinkKey,
             .contentModificationDateKey,
             .fileSizeKey
         ]
         var result = SourceFileEnumeration()
+        if let enumerationSnapshot {
+            result.wasComplete = enumerationSnapshot.wasComplete
+            result.diagnostics = enumerationSnapshot.diagnostics
+            for candidateURL in enumerationSnapshot.candidateURLs {
+                try processCandidate(
+                    candidateURL,
+                    root: root,
+                    pathPolicy: pathPolicy,
+                    resourceKeys: resourceKeys,
+                    previousFingerprints: previousFingerprints,
+                    previousEntitiesByFile: previousEntitiesByFile,
+                    result: &result
+                )
+            }
+            return result
+        }
+
         guard let enumerator = FileManager.default.enumerator(
             at: root,
             includingPropertiesForKeys: Array(resourceKeys),
@@ -181,55 +219,80 @@ public struct SourceDirectoryScanner: Sendable {
         }
 
         for case let candidateURL as URL in enumerator {
-            try Task.checkCancellation()
-            guard let format = format(for: candidateURL) else {
-                continue
-            }
-            let fileURL = candidateURL.standardizedFileURL
-            result.seenFiles.insert(fileURL)
-            let previousFileEntities = previousEntitiesByFile[fileURL, default: []]
-
-            do {
-                let values = try fileURL.resourceValues(forKeys: resourceKeys)
-                guard values.isRegularFile == true else {
-                    continue
-                }
-                result.fileCount += 1
-                let currentFingerprint = fingerprint(from: values)
-                if let currentFingerprint,
-                   currentFingerprint == previousFingerprints[fileURL],
-                   !previousFileEntities.isEmpty {
-                    result.entities.append(contentsOf: previousFileEntities)
-                    result.fingerprints[fileURL] = currentFingerprint
-                    result.reusedFileCount += 1
-                    continue
-                }
-
-                result.pendingFiles.append(
-                    SourceFileParseRequest(
-                        fileURL: fileURL,
-                        format: format,
-                        modifiedAt: values.contentModificationDate,
-                        currentFingerprint: currentFingerprint,
-                        previousFingerprint: previousFingerprints[fileURL],
-                        previousEntities: previousFileEntities
-                    )
-                )
-            } catch {
-                result.entities.append(contentsOf: previousFileEntities)
-                if let previousFingerprint = previousFingerprints[fileURL] {
-                    result.fingerprints[fileURL] = previousFingerprint
-                }
-                result.diagnostics.append(
-                    SourceScanDiagnostic(
-                        fileURL: fileURL,
-                        message: error.localizedDescription
-                    )
-                )
-            }
+            try processCandidate(
+                candidateURL,
+                root: root,
+                pathPolicy: pathPolicy,
+                resourceKeys: resourceKeys,
+                previousFingerprints: previousFingerprints,
+                previousEntitiesByFile: previousEntitiesByFile,
+                result: &result
+            )
         }
 
         return result
+    }
+
+    private func processCandidate(
+        _ candidateURL: URL,
+        root: URL,
+        pathPolicy: SourcePathPolicy,
+        resourceKeys: Set<URLResourceKey>,
+        previousFingerprints: [URL: SourceFileFingerprint],
+        previousEntitiesByFile: [URL: [KnowledgeEntity]],
+        result: inout SourceFileEnumeration
+    ) throws {
+        try Task.checkCancellation()
+        guard let format = format(for: candidateURL) else {
+            return
+        }
+        let fileURL = candidateURL.standardizedFileURL
+        guard let relativePath = relativePath(of: fileURL, from: root),
+              pathPolicy.includes(relativePath: relativePath) else {
+            return
+        }
+        result.seenFiles.insert(fileURL)
+        let previousFileEntities = previousEntitiesByFile[fileURL, default: []]
+
+        do {
+            let values = try fileURL.resourceValues(forKeys: resourceKeys)
+            guard values.isSymbolicLink != true,
+                  values.isRegularFile == true else {
+                return
+            }
+            result.fileCount += 1
+            let currentFingerprint = fingerprint(from: values)
+            if let currentFingerprint,
+               currentFingerprint == previousFingerprints[fileURL],
+               !previousFileEntities.isEmpty {
+                result.entities.append(contentsOf: previousFileEntities)
+                result.fingerprints[fileURL] = currentFingerprint
+                result.reusedFileCount += 1
+                return
+            }
+
+            result.pendingFiles.append(
+                SourceFileParseRequest(
+                    fileURL: fileURL,
+                    format: format,
+                    modifiedAt: values.contentModificationDate,
+                    currentFingerprint: currentFingerprint,
+                    previousFingerprint: previousFingerprints[fileURL],
+                    previousEntities: previousFileEntities
+                )
+            )
+        } catch {
+            result.entities.append(contentsOf: previousFileEntities)
+            if let previousFingerprint = previousFingerprints[fileURL] {
+                result.fingerprints[fileURL] = previousFingerprint
+            }
+            result.diagnostics.append(
+                SourceScanDiagnostic(
+                    fileURL: fileURL,
+                    message: error.localizedDescription
+                )
+            )
+        }
     }
 
     private func parseFiles(
@@ -340,6 +403,17 @@ public struct SourceDirectoryScanner: Sendable {
         return lhs.title < rhs.title
     }
 
+    private func relativePath(of fileURL: URL, from root: URL) -> String? {
+        let rootComponents = root.standardizedFileURL.pathComponents
+        let fileComponents = fileURL.standardizedFileURL.pathComponents
+        guard fileComponents.count > rootComponents.count,
+              fileComponents.prefix(rootComponents.count)
+                .elementsEqual(rootComponents) else {
+            return nil
+        }
+        return fileComponents.dropFirst(rootComponents.count).joined(separator: "/")
+    }
+
     private func format(for fileURL: URL) -> SourceDocument.Format? {
         switch fileURL.pathExtension.lowercased() {
         case "md", "markdown":
@@ -350,6 +424,33 @@ public struct SourceDirectoryScanner: Sendable {
             nil
         }
     }
+
+    private static func productionFileParser(
+        parser: OutlineParser
+    ) -> @Sendable (SourceFileParseRequest) async throws -> [KnowledgeEntity] {
+        { request in
+            try Task.checkCancellation()
+            let contents = try String(
+                contentsOf: request.fileURL,
+                encoding: .utf8
+            )
+            try Task.checkCancellation()
+            return parser.parse(
+                SourceDocument(
+                    fileURL: request.fileURL,
+                    format: request.format,
+                    contents: contents,
+                    modifiedAt: request.modifiedAt
+                )
+            )
+        }
+    }
+}
+
+struct SourceDirectoryEnumerationSnapshot: Sendable {
+    let candidateURLs: [URL]
+    let diagnostics: [SourceScanDiagnostic]
+    let wasComplete: Bool
 }
 
 struct SourceFileParseRequest: Sendable {

@@ -55,6 +55,46 @@ func scannerRecursivelyParsesSupportedKnowledgeFiles() async throws {
 }
 
 @Test
+func scannerSkipsSymbolicLinksOutsideTheSourceRoot() async throws {
+    let container = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerSymlinks-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let root = container.appending(path: "Source", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: container)
+    }
+
+    let includedFile = root.appending(path: "Included.md")
+    let externalFile = container.appending(path: "External.md")
+    let symbolicLink = root.appending(path: "Escape.md")
+    try "# Included".write(to: includedFile, atomically: true, encoding: .utf8)
+    try "# External".write(to: externalFile, atomically: true, encoding: .utf8)
+    try FileManager.default.createSymbolicLink(
+        at: symbolicLink,
+        withDestinationURL: externalFile
+    )
+    let linkValues = try symbolicLink.resourceValues(
+        forKeys: [.isSymbolicLinkKey]
+    )
+    #expect(linkValues.isSymbolicLink == true)
+
+    let result = try await SourceDirectoryScanner().scan(
+        SourceDirectory(url: root)
+    )
+
+    #expect(result.fileCount == 1)
+    #expect(result.parsedFileCount == 1)
+    #expect(Set(result.fingerprints.keys) == [includedFile.standardizedFileURL])
+    #expect(result.entities.allSatisfy {
+        $0.source.fileURL.standardizedFileURL == includedFile.standardizedFileURL
+    })
+    #expect(!result.entities.contains { $0.title == "External" })
+}
+
+@Test
 func scannerReusesUnchangedFilesRetainsFailuresAndConfirmsDeletions() async throws {
     let root = FileManager.default.temporaryDirectory
         .appending(path: "BrainSurfacerIncremental-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -139,6 +179,147 @@ func scannerReusesUnchangedFilesRetainsFailuresAndConfirmsDeletions() async thro
     })
     #expect(deleted.fingerprints[changingFile.standardizedFileURL] == nil)
     #expect(deleted.entities.contains { $0.title == "Last known good" })
+}
+
+@Test
+func scannerAppliesPathPoliciesAndReconcilesPolicyChanges() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerPolicies-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let projects = root.appending(path: "Projects", directoryHint: .isDirectory)
+    let archive = projects.appending(path: "Archive", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: archive,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    let files = [
+        root.appending(path: "Root.md"),
+        root.appending(path: "Root.org"),
+        projects.appending(path: "Notes.md"),
+        projects.appending(path: "Plan.org"),
+        archive.appending(path: "Old.md")
+    ]
+    for file in files {
+        try "# \(file.deletingPathExtension().lastPathComponent)".write(
+            to: file,
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    let scanner = SourceDirectoryScanner()
+    let unrestricted = try await scanner.scan(SourceDirectory(url: root))
+    let filteredSource = SourceDirectory(
+        url: root,
+        pathPolicy: SourcePathPolicy(
+            includePatterns: ["**/*.md", "Projects/**/*.org"],
+            excludePatterns: ["Projects/Archive/**"]
+        )
+    )
+    let filtered = try await scanner.scan(
+        filteredSource,
+        previousFingerprints: unrestricted.fingerprints,
+        previousEntities: unrestricted.entities
+    )
+    let filteredFileNames = Set(
+        filtered.entities.map { $0.source.fileURL.lastPathComponent }
+    )
+
+    #expect(unrestricted.fileCount == 5)
+    #expect(filtered.fileCount == 3)
+    #expect(filtered.parsedFileCount == 0)
+    #expect(filtered.reusedFileCount == 3)
+    #expect(filtered.fingerprints.count == 3)
+    #expect(filteredFileNames == ["Root.md", "Notes.md", "Plan.org"])
+
+    let expanded = try await scanner.scan(
+        SourceDirectory(url: root),
+        previousFingerprints: filtered.fingerprints,
+        previousEntities: filtered.entities
+    )
+    #expect(expanded.fileCount == 5)
+    #expect(expanded.parsedFileCount == 2)
+    #expect(expanded.reusedFileCount == 3)
+
+    let nested = try await scanner.scan(
+        SourceDirectory(
+            url: projects,
+            pathPolicy: SourcePathPolicy(
+                includePatterns: ["*.org"],
+                excludePatterns: ["Archive/**"]
+            )
+        )
+    )
+    #expect(nested.fileCount == 1)
+    #expect(Set(nested.entities.map { $0.source.fileURL.lastPathComponent }) == ["Plan.org"])
+}
+
+@Test
+func incompleteEnumerationRetainsIncludedFilesButDropsPolicyExclusions() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerIncompletePolicy-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    let retainedFile = root.appending(path: "Retained.md")
+    let excludedFile = root.appending(path: "Excluded.md")
+    try "# Retained".write(to: retainedFile, atomically: true, encoding: .utf8)
+    try "# Excluded".write(to: excludedFile, atomically: true, encoding: .utf8)
+
+    let initial = try await SourceDirectoryScanner().scan(
+        SourceDirectory(url: root)
+    )
+    #expect(Set(initial.entities.map {
+        $0.source.fileURL.standardizedFileURL
+    }) == [retainedFile.standardizedFileURL, excludedFile.standardizedFileURL])
+    let unreadableDirectory = root.appending(
+        path: "Unreadable",
+        directoryHint: .isDirectory
+    )
+    let incompleteScanner = SourceDirectoryScanner(
+        enumerationSnapshot: SourceDirectoryEnumerationSnapshot(
+            candidateURLs: [],
+            diagnostics: [
+                SourceScanDiagnostic(
+                    fileURL: unreadableDirectory,
+                    message: "Permission denied"
+                )
+            ],
+            wasComplete: false
+        )
+    )
+    let result = try await incompleteScanner.scan(
+        SourceDirectory(
+            url: root,
+            pathPolicy: SourcePathPolicy(excludePatterns: ["Excluded.md"])
+        ),
+        previousFingerprints: initial.fingerprints,
+        previousEntities: initial.entities
+    )
+
+    #expect(result.fileCount == 1)
+    #expect(result.parsedFileCount == 0)
+    #expect(result.diagnostics == [
+        SourceScanDiagnostic(
+            fileURL: unreadableDirectory,
+            message: "Permission denied"
+        )
+    ])
+    #expect(result.entities.allSatisfy {
+        $0.source.fileURL.standardizedFileURL == retainedFile.standardizedFileURL
+    })
+    #expect(Set(result.fingerprints.keys) == [retainedFile.standardizedFileURL])
+    #expect(!result.entities.contains {
+        $0.source.fileURL.standardizedFileURL == excludedFile.standardizedFileURL
+    })
 }
 
 @Test

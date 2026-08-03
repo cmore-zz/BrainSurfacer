@@ -107,6 +107,7 @@ struct ContentView: View {
 private struct SourcesView: View {
     let model: SourceLibraryModel
     @State private var isDropTarget = false
+    @State private var editingSource: SourceDirectory?
 
     var body: some View {
         Group {
@@ -136,21 +137,36 @@ private struct SourcesView: View {
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
+                            Text(source.pathPolicy.displaySummary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                         Spacer()
                         SourceStatusLabel(
                             status: model.indexStatusBySource[source.id]
                         )
                         Button {
+                            editingSource = source
+                        } label: {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Edit indexing rules")
+                        .help("Edit indexing rules")
+                        Button {
                             model.remove(source)
                         } label: {
                             Image(systemName: "minus.circle")
                         }
                         .buttonStyle(.borderless)
+                        .accessibilityLabel("Remove source")
                         .help("Remove source")
                     }
                     .padding(.vertical, 4)
                     .contextMenu {
+                        Button("Edit Indexing Rules…") {
+                            editingSource = source
+                        }
                         Button("Remove Source", role: .destructive) {
                             model.remove(source)
                         }
@@ -177,6 +193,113 @@ private struct SourcesView: View {
                     .allowsHitTesting(false)
             }
         }
+        .sheet(item: $editingSource) { source in
+            SourcePathPolicyEditor(source: source) { policy in
+                model.updatePathPolicy(policy, for: source)
+            }
+        }
+    }
+}
+
+private struct SourcePathPolicyEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let source: SourceDirectory
+    let onSave: (SourcePathPolicy) -> Void
+    @State private var includePatterns: String
+    @State private var excludePatterns: String
+
+    init(
+        source: SourceDirectory,
+        onSave: @escaping (SourcePathPolicy) -> Void
+    ) {
+        self.source = source
+        self.onSave = onSave
+        _includePatterns = State(
+            initialValue: source.pathPolicy.includePatterns.joined(separator: "\n")
+        )
+        _excludePatterns = State(
+            initialValue: source.pathPolicy.excludePatterns.joined(separator: "\n")
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Source") {
+                    LabeledContent("Folder", value: source.url.lastPathComponent)
+                    Text(source.url.path(percentEncoded: false))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+
+                Section("Include patterns") {
+                    TextEditor(text: $includePatterns)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 90)
+                    Text(
+                        "One root-relative glob per line. Leave empty to include every supported Markdown and Org file."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
+                Section("Exclude patterns") {
+                    TextEditor(text: $excludePatterns)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 90)
+                    Text(
+                        "Exclusions override inclusions. Use * within one path "
+                            + "component, ? for one character, and ** across folders."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("Indexing Rules")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(
+                            SourcePathPolicy(
+                                includePatterns: patternLines(includePatterns),
+                                excludePatterns: patternLines(excludePatterns)
+                            )
+                        )
+                        dismiss()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .frame(minWidth: 560, minHeight: 520)
+    }
+
+    private func patternLines(_ text: String) -> [String] {
+        text.components(separatedBy: .newlines)
+    }
+}
+
+private extension SourcePathPolicy {
+    var displaySummary: String {
+        guard !isUnrestricted else {
+            return "All supported files"
+        }
+        let included = includePatterns.isEmpty
+            ? "all supported files"
+            : "\(includePatterns.count) include rule"
+                + (includePatterns.count == 1 ? "" : "s")
+        guard !excludePatterns.isEmpty else {
+            return included
+        }
+        return included + " · \(excludePatterns.count) exclusion"
+            + (excludePatterns.count == 1 ? "" : "s")
     }
 }
 
