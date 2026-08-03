@@ -152,14 +152,21 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
         for source: SourceDirectory
     ) -> [SourceDirectory] {
         var enrollments = loadEnrollments()
+        var didChange = false
         for index in enrollments.indices {
             guard resolve(enrollments[index].bookmark)?
                 .url.standardizedFileURL.path == source.id else {
                 continue
             }
+            guard enrollments[index].pathPolicy != pathPolicy else {
+                continue
+            }
             enrollments[index].pathPolicy = pathPolicy
+            didChange = true
         }
-        persist(enrollments)
+        if didChange {
+            persist(enrollments)
+        }
         return load()
     }
 

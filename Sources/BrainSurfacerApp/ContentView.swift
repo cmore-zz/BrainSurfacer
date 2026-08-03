@@ -151,6 +151,7 @@ private struct SourcesView: View {
                             Image(systemName: "line.3.horizontal.decrease.circle")
                         }
                         .buttonStyle(.borderless)
+                        .accessibilityLabel("Edit indexing rules")
                         .help("Edit indexing rules")
                         Button {
                             model.remove(source)
@@ -158,6 +159,7 @@ private struct SourcesView: View {
                             Image(systemName: "minus.circle")
                         }
                         .buttonStyle(.borderless)
+                        .accessibilityLabel("Remove source")
                         .help("Remove source")
                     }
                     .padding(.vertical, 4)

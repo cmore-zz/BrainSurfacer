@@ -190,8 +190,13 @@ func decodableFutureEnrollmentSchemasRemainVisibleOnDowngrade() async throws {
         storageKey: storageKey
     )
     let loaded = await olderReader.load()
+    let unchanged = await olderReader.updatePathPolicy(
+        enrolled.pathPolicy,
+        for: enrolled
+    )
 
     #expect(loaded == [enrolled])
+    #expect(unchanged == [enrolled])
     #expect(defaults.data(forKey: storageKey) == futureData)
 }
 
