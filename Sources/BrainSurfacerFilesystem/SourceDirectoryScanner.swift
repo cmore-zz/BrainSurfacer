@@ -134,7 +134,7 @@ public struct SourceDirectoryScanner: Sendable {
             }
         }
 
-        enumeration.entities.sort { $0.id.rawValue < $1.id.rawValue }
+        enumeration.entities.sort(by: entitiesAreInDeterministicOrder)
         enumeration.diagnostics.sort {
             $0.fileURL.path.localizedStandardCompare($1.fileURL.path)
                 == .orderedAscending
@@ -300,6 +300,44 @@ public struct SourceDirectoryScanner: Sendable {
             modifiedAt: modifiedAt,
             fileSize: Int64(fileSize)
         )
+    }
+
+    private func entitiesAreInDeterministicOrder(
+        _ lhs: KnowledgeEntity,
+        _ rhs: KnowledgeEntity
+    ) -> Bool {
+        if lhs.id.rawValue != rhs.id.rawValue {
+            return lhs.id.rawValue < rhs.id.rawValue
+        }
+
+        let lhsPath = lhs.source.fileURL.standardizedFileURL.path
+        let rhsPath = rhs.source.fileURL.standardizedFileURL.path
+        if lhsPath != rhsPath {
+            return lhsPath < rhsPath
+        }
+
+        let lhsOffset = lhs.source.byteOffset ?? -1
+        let rhsOffset = rhs.source.byteOffset ?? -1
+        if lhsOffset != rhsOffset {
+            return lhsOffset < rhsOffset
+        }
+
+        let lhsLine = lhs.source.line ?? -1
+        let rhsLine = rhs.source.line ?? -1
+        if lhsLine != rhsLine {
+            return lhsLine < rhsLine
+        }
+
+        let lhsColumn = lhs.source.column ?? -1
+        let rhsColumn = rhs.source.column ?? -1
+        if lhsColumn != rhsColumn {
+            return lhsColumn < rhsColumn
+        }
+
+        if lhs.kind.rawValue != rhs.kind.rawValue {
+            return lhs.kind.rawValue < rhs.kind.rawValue
+        }
+        return lhs.title < rhs.title
     }
 
     private func format(for fileURL: URL) -> SourceDocument.Format? {

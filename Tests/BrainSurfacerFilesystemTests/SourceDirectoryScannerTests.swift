@@ -184,6 +184,82 @@ func scannerCancellationStopsFeedingPendingFiles() async throws {
     #expect(await probe.startedCount == 2)
 }
 
+@Test
+func scannerOrdersDuplicateCanonicalIDsIndependentlyOfCompletionOrder() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerDuplicateIDs-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    try """
+    * Alpha
+    :PROPERTIES:
+    :ID: shared-duplicate-id
+    :END:
+    Alpha body
+    """.write(
+        to: root.appending(path: "A.org"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try """
+    * Beta
+    :PROPERTIES:
+    :ID: shared-duplicate-id
+    :END:
+    Beta body
+    """.write(
+        to: root.appending(path: "B.org"),
+        atomically: true,
+        encoding: .utf8
+    )
+
+    let source = SourceDirectory(url: root)
+    let firstCompletions = ParseCompletionRecorder(delayedFileName: "A.org")
+    let first = try await scanDuplicateIDFixture(
+        source,
+        completions: firstCompletions
+    )
+    let secondCompletions = ParseCompletionRecorder(delayedFileName: "B.org")
+    let second = try await scanDuplicateIDFixture(
+        source,
+        completions: secondCompletions
+    )
+
+    #expect(await firstCompletions.fileNames == ["B.org", "A.org"])
+    #expect(await secondCompletions.fileNames == ["A.org", "B.org"])
+    #expect(first.entities == second.entities)
+    #expect(first.entities.filter {
+        $0.id.rawValue == "org-id:shared-duplicate-id"
+    }.map { $0.source.fileURL.lastPathComponent } == ["A.org", "B.org"])
+}
+
+private func scanDuplicateIDFixture(
+    _ source: SourceDirectory,
+    completions: ParseCompletionRecorder
+) async throws -> SourceScanResult {
+    let parser = OutlineParser()
+    let scanner = SourceDirectoryScanner(maximumConcurrentFileParses: 2) { request in
+        let contents = try String(contentsOf: request.fileURL, encoding: .utf8)
+        let entities = parser.parse(
+            SourceDocument(
+                fileURL: request.fileURL,
+                format: request.format,
+                contents: contents,
+                modifiedAt: request.modifiedAt
+            )
+        )
+        await completions.finish(request.fileURL.lastPathComponent)
+        return entities
+    }
+    return try await scanner.scan(source)
+}
+
 private func makeScannerFixture(fileCount: Int) throws -> URL {
     let root = FileManager.default.temporaryDirectory
         .appending(path: "BrainSurfacerParallel-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -254,6 +330,32 @@ private actor SuspendedParseProbe {
         }
         await withCheckedContinuation { continuation in
             initialParseWaiters.append(continuation)
+        }
+    }
+}
+
+private actor ParseCompletionRecorder {
+    private let delayedFileName: String
+    private var delayedWaiters: [CheckedContinuation<Void, Never>] = []
+    private(set) var fileNames: [String] = []
+
+    init(delayedFileName: String) {
+        self.delayedFileName = delayedFileName
+    }
+
+    func finish(_ fileName: String) async {
+        if fileName == delayedFileName, fileNames.isEmpty {
+            await withCheckedContinuation { continuation in
+                delayedWaiters.append(continuation)
+            }
+        }
+        fileNames.append(fileName)
+        if fileName != delayedFileName {
+            let waiters = delayedWaiters
+            delayedWaiters.removeAll()
+            for waiter in waiters {
+                waiter.resume()
+            }
         }
     }
 }
