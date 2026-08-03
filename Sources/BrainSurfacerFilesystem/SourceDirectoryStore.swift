@@ -235,8 +235,10 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
            let state = try? JSONDecoder().decode(
                PersistedSourceEnrollmentState.self,
                from: data
-           ),
-           state.schemaVersion == PersistedSourceEnrollmentState.currentSchemaVersion {
+           ) {
+            // Codable ignores unknown fields, so a newer state that still has
+            // this readable core remains usable on downgrade. A genuinely
+            // incompatible representation fails decoding instead.
             return state.enrollments
         }
 

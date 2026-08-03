@@ -54,11 +54,20 @@ public struct SourcePathPolicy: Codable, Hashable, Sendable {
     private static func normalizedPatterns(_ patterns: [String]) -> [String] {
         var seen: Set<String> = []
         return patterns.compactMap { rawPattern in
+            let trimmedPattern = rawPattern.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
             var pattern = normalizedPath(rawPattern)
-            if rawPattern.trimmingCharacters(in: .whitespacesAndNewlines)
-                .hasSuffix("/") {
-                pattern += "/**"
+            if trimmedPattern.hasSuffix("/") {
+                pattern = pattern.isEmpty ? "**" : pattern + "/**"
             }
+            let components = pattern.split(separator: "/").map(String.init)
+            pattern = components.reduce(into: [String]()) { result, component in
+                if component != "**" || result.last != "**" {
+                    result.append(component)
+                }
+            }
+            .joined(separator: "/")
             guard !pattern.isEmpty, seen.insert(pattern).inserted else {
                 return nil
             }

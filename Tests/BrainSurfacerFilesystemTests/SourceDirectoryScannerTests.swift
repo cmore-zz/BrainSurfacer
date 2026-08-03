@@ -218,6 +218,68 @@ func scannerAppliesPathPoliciesAndReconcilesPolicyChanges() async throws {
 }
 
 @Test
+func incompleteEnumerationRetainsIncludedFilesButDropsPolicyExclusions() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerIncompletePolicy-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    let retainedFile = root.appending(path: "Retained.md")
+    let excludedFile = root.appending(path: "Excluded.md")
+    try "# Retained".write(to: retainedFile, atomically: true, encoding: .utf8)
+    try "# Excluded".write(to: excludedFile, atomically: true, encoding: .utf8)
+
+    let initial = try await SourceDirectoryScanner().scan(
+        SourceDirectory(url: root)
+    )
+    let unreadableDirectory = root.appending(
+        path: "Unreadable",
+        directoryHint: .isDirectory
+    )
+    let incompleteScanner = SourceDirectoryScanner(
+        enumerationSnapshot: SourceDirectoryEnumerationSnapshot(
+            candidateURLs: [],
+            diagnostics: [
+                SourceScanDiagnostic(
+                    fileURL: unreadableDirectory,
+                    message: "Permission denied"
+                )
+            ],
+            wasComplete: false
+        )
+    )
+    let result = try await incompleteScanner.scan(
+        SourceDirectory(
+            url: root,
+            pathPolicy: SourcePathPolicy(excludePatterns: ["Excluded.md"])
+        ),
+        previousFingerprints: initial.fingerprints,
+        previousEntities: initial.entities
+    )
+
+    #expect(result.fileCount == 1)
+    #expect(result.parsedFileCount == 0)
+    #expect(result.diagnostics == [
+        SourceScanDiagnostic(
+            fileURL: unreadableDirectory,
+            message: "Permission denied"
+        )
+    ])
+    #expect(result.entities.allSatisfy {
+        $0.source.fileURL.standardizedFileURL == retainedFile.standardizedFileURL
+    })
+    #expect(Set(result.fingerprints.keys) == [retainedFile.standardizedFileURL])
+    #expect(!result.entities.contains {
+        $0.source.fileURL.standardizedFileURL == excludedFile.standardizedFileURL
+    })
+}
+
+@Test
 func scannerBoundsConcurrentParsing() async throws {
     let root = try makeScannerFixture(fileCount: 12)
     defer {

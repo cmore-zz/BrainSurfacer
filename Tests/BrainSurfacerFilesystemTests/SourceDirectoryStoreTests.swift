@@ -156,6 +156,46 @@ func legacyBookmarkArraysMigrateToUnrestrictedEnrollmentRecords() async throws {
 }
 
 @Test
+func decodableFutureEnrollmentSchemasRemainVisibleOnDowngrade() async throws {
+    let suiteName = "BrainSurfacerTests.\(UUID().uuidString)"
+    let storageKey = "testFutureSourceEnrollments"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    let directory = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerFuture-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    let writer = SourceDirectoryStore(suiteName: suiteName, storageKey: storageKey)
+    let enrolled = try #require(try await writer.add([directory]).first)
+    let storedData = try #require(defaults.data(forKey: storageKey))
+    var storedObject = try #require(
+        JSONSerialization.jsonObject(with: storedData) as? [String: Any]
+    )
+    storedObject["schemaVersion"] = 2
+    storedObject["futureMetadata"] = ["preservedByNewerWriter": true]
+    let futureData = try JSONSerialization.data(withJSONObject: storedObject)
+    defaults.set(futureData, forKey: storageKey)
+
+    let olderReader = SourceDirectoryStore(
+        suiteName: suiteName,
+        storageKey: storageKey
+    )
+    let loaded = await olderReader.load()
+
+    #expect(loaded == [enrolled])
+    #expect(defaults.data(forKey: storageKey) == futureData)
+}
+
+@Test
 func sourceAccessSelectsTheMostSpecificEnclosingSource() {
     let broadRoot = URL(fileURLWithPath: "/Users/example/Notes")
     let nestedRoot = URL(fileURLWithPath: "/Users/example/Notes/Projects")

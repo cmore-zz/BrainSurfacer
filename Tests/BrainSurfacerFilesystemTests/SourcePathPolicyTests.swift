@@ -30,3 +30,15 @@ func unrestrictedSourcePathPolicyIncludesEveryNonemptyRelativePath() {
     #expect(policy.includes(relativePath: "Nested/Plan.org"))
     #expect(!policy.includes(relativePath: ""))
 }
+
+@Test
+func rootDirectoryPatternsNormalizeToTheCanonicalRecursiveGlob() {
+    let policy = SourcePathPolicy(
+        includePatterns: ["/", "./", "**", "**/"],
+        excludePatterns: [" Archive/ "]
+    )
+
+    #expect(policy.includePatterns == ["**"])
+    #expect(policy.excludePatterns == ["Archive/**"])
+    #expect(policy.includes(relativePath: "Nested/Note.md"))
+}
