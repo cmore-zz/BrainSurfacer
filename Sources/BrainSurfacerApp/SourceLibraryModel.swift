@@ -131,6 +131,19 @@ final class SourceLibraryModel {
         }
     }
 
+    func updatePathPolicy(
+        _ pathPolicy: SourcePathPolicy,
+        for source: SourceDirectory
+    ) {
+        Task {
+            sources = await store.updatePathPolicy(pathPolicy, for: source)
+            guard let updatedSource = sources.first(where: { $0.id == source.id }) else {
+                return
+            }
+            await reindex(updatedSource)
+        }
+    }
+
     func reindexAll() async {
         let isFullRebuild: Bool
         do {

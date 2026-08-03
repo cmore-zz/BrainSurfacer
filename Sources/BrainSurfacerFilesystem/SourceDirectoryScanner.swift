@@ -108,6 +108,7 @@ public struct SourceDirectoryScanner: Sendable {
         )
         var enumeration = try enumerateFiles(
             at: root,
+            pathPolicy: source.pathPolicy,
             previousFingerprints: previousFingerprints,
             previousEntitiesByFile: previousEntitiesByFile
         )
@@ -124,6 +125,10 @@ public struct SourceDirectoryScanner: Sendable {
             let previouslyKnownFiles = Set(previousFingerprints.keys)
                 .union(previousEntitiesByFile.keys)
             for fileURL in previouslyKnownFiles.subtracting(enumeration.seenFiles) {
+                guard let relativePath = relativePath(of: fileURL, from: root),
+                      source.pathPolicy.includes(relativePath: relativePath) else {
+                    continue
+                }
                 enumeration.entities.append(
                     contentsOf: previousEntitiesByFile[fileURL, default: []]
                 )
@@ -153,6 +158,7 @@ public struct SourceDirectoryScanner: Sendable {
 
     private func enumerateFiles(
         at root: URL,
+        pathPolicy: SourcePathPolicy,
         previousFingerprints: [URL: SourceFileFingerprint],
         previousEntitiesByFile: [URL: [KnowledgeEntity]]
     ) throws -> SourceFileEnumeration {
@@ -186,6 +192,10 @@ public struct SourceDirectoryScanner: Sendable {
                 continue
             }
             let fileURL = candidateURL.standardizedFileURL
+            guard let relativePath = relativePath(of: fileURL, from: root),
+                  pathPolicy.includes(relativePath: relativePath) else {
+                continue
+            }
             result.seenFiles.insert(fileURL)
             let previousFileEntities = previousEntitiesByFile[fileURL, default: []]
 
@@ -338,6 +348,17 @@ public struct SourceDirectoryScanner: Sendable {
             return lhs.kind.rawValue < rhs.kind.rawValue
         }
         return lhs.title < rhs.title
+    }
+
+    private func relativePath(of fileURL: URL, from root: URL) -> String? {
+        let rootComponents = root.standardizedFileURL.pathComponents
+        let fileComponents = fileURL.standardizedFileURL.pathComponents
+        guard fileComponents.count > rootComponents.count,
+              fileComponents.prefix(rootComponents.count)
+                .elementsEqual(rootComponents) else {
+            return nil
+        }
+        return fileComponents.dropFirst(rootComponents.count).joined(separator: "/")
     }
 
     private func format(for fileURL: URL) -> SourceDocument.Format? {

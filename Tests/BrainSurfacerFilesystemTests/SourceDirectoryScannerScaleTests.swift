@@ -27,7 +27,10 @@ func scannerHandlesTwentyThousandNotesIncrementally() async throws {
     }
 
     let scanner = SourceDirectoryScanner(maximumConcurrentFileParses: 8)
-    let source = SourceDirectory(url: root)
+    let source = SourceDirectory(
+        url: root,
+        pathPolicy: SourcePathPolicy(includePatterns: ["**/*.md"])
+    )
     let initial = try await scanner.scan(source)
 
     #expect(initial.fileCount == noteCount)

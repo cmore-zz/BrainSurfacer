@@ -76,6 +76,86 @@ func sourceAccessUsesTheConfiguredEnrollmentStore() async throws {
 }
 
 @Test
+func sourcePathPoliciesPersistWithEnrollmentAndAreRemovedWithIt() async throws {
+    let suiteName = "BrainSurfacerTests.\(UUID().uuidString)"
+    let storageKey = "testSourcePolicyEnrollments"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    let directory = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerPolicy-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    let store = SourceDirectoryStore(suiteName: suiteName, storageKey: storageKey)
+    let source = try #require(try await store.add([directory]).first)
+    let policy = SourcePathPolicy(
+        includePatterns: ["Projects/**"],
+        excludePatterns: ["Projects/Archive/**"]
+    )
+    let updated = try #require(
+        await store.updatePathPolicy(policy, for: source).first
+    )
+    let relaunched = SourceDirectoryStore(
+        suiteName: suiteName,
+        storageKey: storageKey
+    )
+
+    #expect(updated.pathPolicy == policy)
+    #expect(await relaunched.load().first?.pathPolicy == policy)
+
+    _ = await relaunched.remove(updated)
+    let reenrolled = try #require(try await relaunched.add([directory]).first)
+    #expect(reenrolled.pathPolicy.isUnrestricted)
+}
+
+@Test
+func legacyBookmarkArraysMigrateToUnrestrictedEnrollmentRecords() async throws {
+    let suiteName = "BrainSurfacerTests.\(UUID().uuidString)"
+    let storageKey = "testLegacySourceBookmarks"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    let directory = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerLegacy-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    let bookmark = try directory.bookmarkData(
+        options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
+        includingResourceValuesForKeys: [.isDirectoryKey],
+        relativeTo: nil
+    )
+    defaults.set([bookmark], forKey: storageKey)
+
+    let store = SourceDirectoryStore(suiteName: suiteName, storageKey: storageKey)
+    let migrated = try #require(await store.load().first)
+    let relaunched = SourceDirectoryStore(
+        suiteName: suiteName,
+        storageKey: storageKey
+    )
+
+    #expect(migrated.url == directory.standardizedFileURL)
+    #expect(migrated.pathPolicy.isUnrestricted)
+    #expect(defaults.data(forKey: storageKey) != nil)
+    #expect(await relaunched.load() == [migrated])
+}
+
+@Test
 func sourceAccessSelectsTheMostSpecificEnclosingSource() {
     let broadRoot = URL(fileURLWithPath: "/Users/example/Notes")
     let nestedRoot = URL(fileURLWithPath: "/Users/example/Notes/Projects")

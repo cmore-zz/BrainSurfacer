@@ -4,16 +4,22 @@ import Foundation
 public struct SourceDirectory: Identifiable, Hashable, Sendable {
     public var id: String
     public var url: URL
+    public var pathPolicy: SourcePathPolicy
 
-    public init(url: URL) {
+    public init(
+        url: URL,
+        pathPolicy: SourcePathPolicy = SourcePathPolicy()
+    ) {
         let url = url.standardizedFileURL
         id = url.path
         self.url = url
+        self.pathPolicy = pathPolicy
     }
 }
 
-/// Persists enrolled source roots and leases their security-scoped access.
-/// Loading also replaces stale bookmarks before returning their resolved URLs.
+/// Persists enrolled source roots and their path policies together, and leases
+/// their security-scoped access. Loading also replaces stale bookmarks before
+/// returning resolved URLs without detaching their policies.
 public actor SourceDirectoryStore: DocumentAccessProvider {
     public enum Error: LocalizedError {
         case notDirectory(URL)
@@ -42,10 +48,10 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
     }
 
     public func load() -> [SourceDirectory] {
-        let bookmarks = defaults.array(forKey: storageKey) as? [Data] ?? []
-        let resolution = resolve(bookmarks)
-        if resolution.bookmarks != bookmarks {
-            defaults.set(resolution.bookmarks, forKey: storageKey)
+        let enrollments = loadEnrollments()
+        let resolution = resolve(enrollments)
+        if resolution.enrollments != enrollments {
+            persist(resolution.enrollments)
         }
         return resolution.sources
     }
@@ -95,8 +101,9 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
     }
 
     public func add(_ urls: [URL]) throws -> [SourceDirectory] {
-        var bookmarks = defaults.array(forKey: storageKey) as? [Data] ?? []
-        var knownPaths = Set(resolve(bookmarks).sources.map(\.id))
+        let resolution = resolve(loadEnrollments())
+        var enrollments = resolution.enrollments
+        var knownPaths = Set(resolution.sources.map(\.id))
 
         for candidate in urls {
             let url = candidate.standardizedFileURL
@@ -119,34 +126,58 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
                 includingResourceValuesForKeys: [.isDirectoryKey],
                 relativeTo: nil
             )
-            bookmarks.append(bookmark)
+            enrollments.append(
+                PersistedSourceEnrollment(
+                    identifier: UUID(),
+                    bookmark: bookmark,
+                    pathPolicy: SourcePathPolicy()
+                )
+            )
         }
 
-        defaults.set(bookmarks, forKey: storageKey)
-        return resolve(bookmarks).sources
+        persist(enrollments)
+        return load()
     }
 
     public func remove(_ source: SourceDirectory) -> [SourceDirectory] {
-        let bookmarks = defaults.array(forKey: storageKey) as? [Data] ?? []
-        let retained = bookmarks.filter { bookmark in
-            resolve(bookmark)?.url.standardizedFileURL.path != source.id
+        let retained = loadEnrollments().filter { enrollment in
+            resolve(enrollment.bookmark)?.url.standardizedFileURL.path != source.id
         }
-        defaults.set(retained, forKey: storageKey)
-        return resolve(retained).sources
+        persist(retained)
+        return load()
+    }
+
+    public func updatePathPolicy(
+        _ pathPolicy: SourcePathPolicy,
+        for source: SourceDirectory
+    ) -> [SourceDirectory] {
+        var enrollments = loadEnrollments()
+        for index in enrollments.indices {
+            guard resolve(enrollments[index].bookmark)?
+                .url.standardizedFileURL.path == source.id else {
+                continue
+            }
+            enrollments[index].pathPolicy = pathPolicy
+        }
+        persist(enrollments)
+        return load()
     }
 
     private func resolve(
-        _ bookmarks: [Data]
-    ) -> (sources: [SourceDirectory], bookmarks: [Data]) {
+        _ enrollments: [PersistedSourceEnrollment]
+    ) -> (sources: [SourceDirectory], enrollments: [PersistedSourceEnrollment]) {
         var seen: Set<String> = []
         var sources: [SourceDirectory] = []
-        var validBookmarks: [Data] = []
+        var validEnrollments: [PersistedSourceEnrollment] = []
 
-        for bookmark in bookmarks {
-            guard let resolved = resolve(bookmark) else {
+        for enrollment in enrollments {
+            guard let resolved = resolve(enrollment.bookmark) else {
                 continue
             }
-            let source = SourceDirectory(url: resolved.url)
+            let source = SourceDirectory(
+                url: resolved.url,
+                pathPolicy: enrollment.pathPolicy
+            )
             guard seen.insert(source.id).inserted else {
                 continue
             }
@@ -154,16 +185,22 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
             sources.append(source)
             if resolved.isStale,
                let refreshed = try? refreshedBookmark(for: resolved.url) {
-                validBookmarks.append(refreshed)
+                validEnrollments.append(
+                    PersistedSourceEnrollment(
+                        identifier: enrollment.identifier,
+                        bookmark: refreshed,
+                        pathPolicy: enrollment.pathPolicy
+                    )
+                )
             } else {
-                validBookmarks.append(bookmark)
+                validEnrollments.append(enrollment)
             }
         }
 
         sources.sort {
             $0.url.path.localizedStandardCompare($1.url.path) == .orderedAscending
         }
-        return (sources, validBookmarks)
+        return (sources, validEnrollments)
     }
 
     private func resolve(_ bookmark: Data) -> (url: URL, isStale: Bool)? {
@@ -192,4 +229,49 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
             relativeTo: nil
         )
     }
+
+    private func loadEnrollments() -> [PersistedSourceEnrollment] {
+        if let data = defaults.data(forKey: storageKey),
+           let state = try? JSONDecoder().decode(
+               PersistedSourceEnrollmentState.self,
+               from: data
+           ),
+           state.schemaVersion == PersistedSourceEnrollmentState.currentSchemaVersion {
+            return state.enrollments
+        }
+
+        let legacyBookmarks = defaults.array(forKey: storageKey) as? [Data] ?? []
+        let migrated = legacyBookmarks.map {
+            PersistedSourceEnrollment(
+                identifier: UUID(),
+                bookmark: $0,
+                pathPolicy: SourcePathPolicy()
+            )
+        }
+        if !legacyBookmarks.isEmpty {
+            persist(migrated)
+        }
+        return migrated
+    }
+
+    private func persist(_ enrollments: [PersistedSourceEnrollment]) {
+        let state = PersistedSourceEnrollmentState(enrollments: enrollments)
+        guard let data = try? JSONEncoder().encode(state) else {
+            return
+        }
+        defaults.set(data, forKey: storageKey)
+    }
+}
+
+private struct PersistedSourceEnrollmentState: Codable {
+    static let currentSchemaVersion = 1
+
+    var schemaVersion = Self.currentSchemaVersion
+    var enrollments: [PersistedSourceEnrollment]
+}
+
+private struct PersistedSourceEnrollment: Codable, Equatable {
+    var identifier: UUID
+    var bookmark: Data
+    var pathPolicy: SourcePathPolicy
 }

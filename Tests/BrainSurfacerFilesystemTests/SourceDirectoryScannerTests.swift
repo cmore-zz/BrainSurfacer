@@ -142,6 +142,82 @@ func scannerReusesUnchangedFilesRetainsFailuresAndConfirmsDeletions() async thro
 }
 
 @Test
+func scannerAppliesPathPoliciesAndReconcilesPolicyChanges() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerPolicies-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let projects = root.appending(path: "Projects", directoryHint: .isDirectory)
+    let archive = projects.appending(path: "Archive", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: archive,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    let files = [
+        root.appending(path: "Root.md"),
+        root.appending(path: "Root.org"),
+        projects.appending(path: "Notes.md"),
+        projects.appending(path: "Plan.org"),
+        archive.appending(path: "Old.md")
+    ]
+    for file in files {
+        try "# \(file.deletingPathExtension().lastPathComponent)".write(
+            to: file,
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    let scanner = SourceDirectoryScanner()
+    let unrestricted = try await scanner.scan(SourceDirectory(url: root))
+    let filteredSource = SourceDirectory(
+        url: root,
+        pathPolicy: SourcePathPolicy(
+            includePatterns: ["**/*.md", "Projects/**/*.org"],
+            excludePatterns: ["Projects/Archive/**"]
+        )
+    )
+    let filtered = try await scanner.scan(
+        filteredSource,
+        previousFingerprints: unrestricted.fingerprints,
+        previousEntities: unrestricted.entities
+    )
+    let filteredFileNames = Set(
+        filtered.entities.map { $0.source.fileURL.lastPathComponent }
+    )
+
+    #expect(unrestricted.fileCount == 5)
+    #expect(filtered.fileCount == 3)
+    #expect(filtered.parsedFileCount == 0)
+    #expect(filtered.reusedFileCount == 3)
+    #expect(filtered.fingerprints.count == 3)
+    #expect(filteredFileNames == ["Root.md", "Notes.md", "Plan.org"])
+
+    let expanded = try await scanner.scan(
+        SourceDirectory(url: root),
+        previousFingerprints: filtered.fingerprints,
+        previousEntities: filtered.entities
+    )
+    #expect(expanded.fileCount == 5)
+    #expect(expanded.parsedFileCount == 2)
+    #expect(expanded.reusedFileCount == 3)
+
+    let nested = try await scanner.scan(
+        SourceDirectory(
+            url: projects,
+            pathPolicy: SourcePathPolicy(
+                includePatterns: ["*.org"],
+                excludePatterns: ["Archive/**"]
+            )
+        )
+    )
+    #expect(nested.fileCount == 1)
+    #expect(Set(nested.entities.map { $0.source.fileURL.lastPathComponent }) == ["Plan.org"])
+}
+
+@Test
 func scannerBoundsConcurrentParsing() async throws {
     let root = try makeScannerFixture(fileCount: 12)
     defer {
