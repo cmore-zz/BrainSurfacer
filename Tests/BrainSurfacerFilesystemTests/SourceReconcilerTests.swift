@@ -64,6 +64,7 @@ func reconciliationRemovesFilesExcludedByAChangedSourcePolicy() async throws {
     let excludedIDs = Set(initiallyIndexed.filter {
         $0.source.fileURL.standardizedFileURL == excludedFile.standardizedFileURL
     }.map(\.id))
+    #expect(!excludedIDs.isEmpty)
     let filteredSource = SourceDirectory(
         url: fixture.source.url,
         pathPolicy: SourcePathPolicy(excludePatterns: ["Excluded.md"])

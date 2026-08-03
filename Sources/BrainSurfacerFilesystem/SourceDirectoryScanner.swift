@@ -178,6 +178,7 @@ public struct SourceDirectoryScanner: Sendable {
     ) throws -> SourceFileEnumeration {
         let resourceKeys: Set<URLResourceKey> = [
             .isRegularFileKey,
+            .isSymbolicLinkKey,
             .contentModificationDateKey,
             .fileSizeKey
         ]
@@ -255,7 +256,8 @@ public struct SourceDirectoryScanner: Sendable {
 
         do {
             let values = try fileURL.resourceValues(forKeys: resourceKeys)
-            guard values.isRegularFile == true else {
+            guard values.isSymbolicLink != true,
+                  values.isRegularFile == true else {
                 return
             }
             result.fileCount += 1

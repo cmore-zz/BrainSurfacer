@@ -55,6 +55,46 @@ func scannerRecursivelyParsesSupportedKnowledgeFiles() async throws {
 }
 
 @Test
+func scannerSkipsSymbolicLinksOutsideTheSourceRoot() async throws {
+    let container = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerSymlinks-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let root = container.appending(path: "Source", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: container)
+    }
+
+    let includedFile = root.appending(path: "Included.md")
+    let externalFile = container.appending(path: "External.md")
+    let symbolicLink = root.appending(path: "Escape.md")
+    try "# Included".write(to: includedFile, atomically: true, encoding: .utf8)
+    try "# External".write(to: externalFile, atomically: true, encoding: .utf8)
+    try FileManager.default.createSymbolicLink(
+        at: symbolicLink,
+        withDestinationURL: externalFile
+    )
+    let linkValues = try symbolicLink.resourceValues(
+        forKeys: [.isSymbolicLinkKey]
+    )
+    #expect(linkValues.isSymbolicLink == true)
+
+    let result = try await SourceDirectoryScanner().scan(
+        SourceDirectory(url: root)
+    )
+
+    #expect(result.fileCount == 1)
+    #expect(result.parsedFileCount == 1)
+    #expect(Set(result.fingerprints.keys) == [includedFile.standardizedFileURL])
+    #expect(result.entities.allSatisfy {
+        $0.source.fileURL.standardizedFileURL == includedFile.standardizedFileURL
+    })
+    #expect(!result.entities.contains { $0.title == "External" })
+}
+
+@Test
 func scannerReusesUnchangedFilesRetainsFailuresAndConfirmsDeletions() async throws {
     let root = FileManager.default.temporaryDirectory
         .appending(path: "BrainSurfacerIncremental-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -237,6 +277,9 @@ func incompleteEnumerationRetainsIncludedFilesButDropsPolicyExclusions() async t
     let initial = try await SourceDirectoryScanner().scan(
         SourceDirectory(url: root)
     )
+    #expect(Set(initial.entities.map {
+        $0.source.fileURL.standardizedFileURL
+    }) == [retainedFile.standardizedFileURL, excludedFile.standardizedFileURL])
     let unreadableDirectory = root.appending(
         path: "Unreadable",
         directoryHint: .isDirectory
