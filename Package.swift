@@ -11,7 +11,11 @@ let package = Package(
         .library(name: "BrainSurfacerModel", targets: ["BrainSurfacerModel"]),
         .library(name: "BrainSurfacerCore", targets: ["BrainSurfacerCore"]),
         .library(name: "BrainSurfacerFilesystem", targets: ["BrainSurfacerFilesystem"]),
-        .library(name: "BrainSurfacerApple", targets: ["BrainSurfacerApple"])
+        .library(name: "BrainSurfacerApple", targets: ["BrainSurfacerApple"]),
+        .executable(
+            name: "brainsurfacer-context",
+            targets: ["BrainSurfacerContextCLI"]
+        )
     ],
     targets: [
         .target(name: "BrainSurfacerModel"),
@@ -30,6 +34,10 @@ let package = Package(
                 "BrainSurfacerFilesystem",
                 "BrainSurfacerModel"
             ]
+        ),
+        .executableTarget(
+            name: "BrainSurfacerContextCLI",
+            dependencies: ["BrainSurfacerCore"]
         ),
         .testTarget(
             name: "BrainSurfacerCoreTests",

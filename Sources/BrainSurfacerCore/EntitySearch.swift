@@ -181,3 +181,30 @@ private struct CatalogSearchMatch {
     var entity: KnowledgeEntity
     var score: Int
 }
+
+/// Applies ephemeral working context without replacing a search backend's
+/// relevance ranking. Context only reorders results that the query already
+/// matched, and base order remains stable among equal context scores.
+public struct ContextualSearchReranker: Sendable {
+    public init() {}
+
+    public func rerank(
+        _ results: [EntitySearchResult],
+        using context: CurrentContext
+    ) -> [EntitySearchResult] {
+        let contextScores = Dictionary(
+            context.resolved.map { ($0.entity.id, $0.score) },
+            uniquingKeysWith: max
+        )
+        return results.enumerated().sorted { first, second in
+            let firstScore = first.element.entityID
+                .flatMap { contextScores[$0] } ?? 0
+            let secondScore = second.element.entityID
+                .flatMap { contextScores[$0] } ?? 0
+            if firstScore != secondScore {
+                return firstScore > secondScore
+            }
+            return first.offset < second.offset
+        }.map(\.element)
+    }
+}

@@ -82,6 +82,21 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
         try await operation()
     }
 
+    /// Returns the standardized candidates covered by an enrolled source.
+    /// Context transports use this as their consent boundary before accepting
+    /// editor-observed document paths.
+    public func enrolledDocumentURLs(in candidates: [URL]) -> Set<URL> {
+        let roots = load().map { $0.url.resolvingSymlinksInPath() }
+        return Set(candidates.compactMap { candidate in
+            let standardizedCandidate = candidate.standardizedFileURL
+            let resolvedCandidate = standardizedCandidate.resolvingSymlinksInPath()
+            guard Self.enclosingRoot(for: resolvedCandidate, among: roots) != nil else {
+                return nil
+            }
+            return standardizedCandidate
+        })
+    }
+
     func enclosingEnrolledRoot(for documentURL: URL) -> URL? {
         Self.enclosingRoot(
             for: documentURL,

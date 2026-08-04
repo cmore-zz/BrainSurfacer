@@ -85,10 +85,14 @@ invariants.
 - Evaluate result coverage for Foundation Models plus `SpotlightSearchTool`
   before adding an assistant-style product surface.
 
-## 9. Context consumers and editor connectors
+## 9. Context consumers and editor connectors *(in progress)*
 
-- Wire `ContextCoordinator` into BrainSurfacer-local reranking and suggestions.
+- Wire `ContextCoordinator` into BrainSurfacer-local reranking. *(implemented)*
+- Add BrainSurfacer-local context-driven suggestions.
 - Evolve the in-process provider contract into a versioned local transport.
+  *(initial bounded snapshot bridge implemented; authenticated streaming IPC pending)*
+- Annotate BrainSurfacer's own visible context rows with their existing App
+  Entity identity. *(implemented)*
 - Implement Emacs and Obsidian visible/working-set reporting and precise opener
   capabilities.
 - Keep editor context ephemeral and consented; do not imply that it becomes

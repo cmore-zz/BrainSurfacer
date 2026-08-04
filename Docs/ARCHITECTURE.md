@@ -231,6 +231,19 @@ provider-local identifier and carries a relevance state and expiration. The
 `ContextCoordinator` resolves those references through the catalog, combines
 signals from multiple providers without duplicating entities, retains unresolved
 signals while parsing catches up, and removes expired or disconnected state.
+The app consumes that combined state when reranking in-app search results.
+Context changes order only among existing query matches; they cannot introduce
+an unrelated visible document as a search result.
+
+The first cross-process connector contract is a versioned, bounded
+`EditorContextUpdate`: a complete snapshot of file anchors marked selected,
+visible, or open. A small command-line bridge delivers the snapshot through a
+local custom URL. The app validates its version, age, expiration, shape, and
+size, then discards every anchor outside a currently enrolled source before
+passing it to `ContextCoordinator`. Updates live only in memory and an empty
+snapshot clears the provider. The custom-URL payload is URL-safe base64, not
+encryption, and it does not authenticate the sender; authenticated streaming
+IPC remains a later transport improvement.
 
 ### Apple platform
 
@@ -285,10 +298,12 @@ stale projected path from becoming a second identity system and lets catalog
 reconciliation follow moves and renames.
 
 Incoming custom-scheme URLs are untrusted navigation. Handlers accept only the
-fixed entity and search routes, never accept filesystem paths or commands, and
-resolve entity identifiers exclusively against the enrolled local catalog. An
-entity route may still open its resolved source in the configured external
-editor, while a search route only presents a query in BrainSurfacer.
+fixed entity, search, and bounded context routes and never accept commands. An
+entity route resolves its identifier exclusively against the enrolled local
+catalog before opening its source in the configured editor. A search route only
+presents a query in BrainSurfacer. A context route may carry file anchors, but
+the app filters them through the current source enrollments and gives them only
+ephemeral ranking authority; it cannot open or index an unenrolled path.
 
 The configured macOS opener routes to the file's default application, an
 Obsidian URI with the closest Markdown heading, or Emacs.app arguments with the
@@ -315,9 +330,11 @@ filesystem rather than a second source of truth.
 The SDK also adds `RelevantEntities`, but its public context surface is currently
 domain-specific rather than a general “current working set” mechanism. The
 architecture therefore does not equate live editor context with
-`RelevantEntities`. Working context can feed in-app ranking, suggestions,
-donations, and on-screen entity annotations where appropriate while the adapter
-evolves with the SDK.
+`RelevantEntities`. BrainSurfacer annotates rows in its own Live Context UI with
+the existing Spotlight App Entity identity, using the SDK's onscreen entity
+annotation APIs. It cannot annotate UI owned by Emacs or Obsidian. Working
+context can feed in-app ranking and future suggestions or donations while the
+adapter evolves with the SDK.
 
 ### Plugins and openers
 

@@ -1,9 +1,38 @@
 @testable import BrainSurfacerApple
+import AppIntents
 import BrainSurfacerCore
 import BrainSurfacerModel
 import CoreSpotlight
 import Foundation
 import Testing
+
+@Test
+func onscreenAnnotationsUseTheExistingSpotlightEntityIdentity() {
+    let note = KnowledgeEntity(
+        id: EntityID(rawValue: "annotated-note"),
+        kind: .note,
+        title: "Annotated note",
+        source: SourceAnchor(fileURL: URL(fileURLWithPath: "/tmp/Note.md"))
+    )
+    let heading = KnowledgeEntity(
+        id: EntityID(rawValue: "annotated-heading"),
+        kind: .heading,
+        title: "Annotated heading",
+        source: SourceAnchor(fileURL: URL(fileURLWithPath: "/tmp/Note.md"))
+    )
+
+    let noteIdentifier = BrainSurfacerAppEntityAnnotations.identifier(for: note)
+    let headingIdentifier = BrainSurfacerAppEntityAnnotations.identifier(for: heading)
+
+    #expect(
+        noteIdentifier
+            == EntityIdentifier(for: SpotlightNoteEntity(note))
+    )
+    #expect(
+        headingIdentifier
+            == EntityIdentifier(for: SpotlightKnowledgeEntity(heading))
+    )
+}
 
 @Test
 func oversizedCanonicalIdentifierProjectsToBoundedStableSpotlightIdentifier() {
