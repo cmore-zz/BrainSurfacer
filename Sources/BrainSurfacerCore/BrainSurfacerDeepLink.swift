@@ -6,6 +6,7 @@ public enum BrainSurfacerDeepLink: Equatable, Sendable {
 
     case entity(EntityID)
     case search(String)
+    case context(EditorContextUpdate)
 
     public var url: URL {
         var components = URLComponents()
@@ -22,6 +23,17 @@ public enum BrainSurfacerDeepLink: Equatable, Sendable {
             components.path = "/search"
             components.queryItems = [
                 URLQueryItem(name: "query", value: term)
+            ]
+        case let .context(update):
+            let data: Data
+            do {
+                data = try JSONEncoder().encode(update)
+            } catch {
+                preconditionFailure("BrainSurfacer could not encode editor context")
+            }
+            components.path = "/context"
+            components.queryItems = [
+                URLQueryItem(name: "payload", value: data.base64URLEncodedString)
             ]
         }
 
@@ -51,8 +63,39 @@ public enum BrainSurfacerDeepLink: Equatable, Sendable {
                 return nil
             }
             self = .search(value)
+        case "/context":
+            guard let value = queryItems.first(where: { $0.name == "payload" })?.value,
+                  value.utf8.count <= 32_768,
+                  let data = Data(base64URLEncoded: value),
+                  let update = try? JSONDecoder().decode(
+                      EditorContextUpdate.self,
+                      from: data
+                  ) else {
+                return nil
+            }
+            self = .context(update)
         default:
             return nil
         }
+    }
+}
+
+private extension Data {
+    var base64URLEncodedString: String {
+        base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    init?(base64URLEncoded value: String) {
+        var base64 = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = base64.count % 4
+        if remainder != 0 {
+            base64.append(String(repeating: "=", count: 4 - remainder))
+        }
+        self.init(base64Encoded: base64)
     }
 }

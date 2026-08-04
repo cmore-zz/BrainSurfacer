@@ -1,7 +1,9 @@
 import AppKit
+import AppIntents
 import BrainSurfacerApple
 import BrainSurfacerCore
 import BrainSurfacerFilesystem
+import BrainSurfacerModel
 import Combine
 import SwiftUI
 import UniformTypeIdentifiers
@@ -70,11 +72,7 @@ struct ContentView: View {
         case .index:
             IndexView(model: sourceLibrary)
         case .context:
-            EmptyState(
-                icon: "rectangle.on.rectangle.slash",
-                title: "No live context providers",
-                message: "Editor connectors will report visible and nearby work separately from the permanent index."
-            )
+            LiveContextView(model: sourceLibrary)
         case .openers:
             OpenersView()
         case nil:
@@ -92,6 +90,11 @@ struct ContentView: View {
         case let .search(term):
             selection = .index
             sourceLibrary.presentSearch(term)
+        case let .context(update):
+            selection = .context
+            Task {
+                await sourceLibrary.ingestEditorContext(update)
+            }
         }
     }
 
@@ -101,6 +104,179 @@ struct ContentView: View {
         }
         selection = .index
         sourceLibrary.presentSearch(term)
+    }
+}
+
+private struct LiveContextView: View {
+    let model: SourceLibraryModel
+
+    var body: some View {
+        Group {
+            if model.contextProviderIDs.isEmpty {
+                ContentUnavailableView {
+                    Label(
+                        "No live editor context",
+                        systemImage: "rectangle.on.rectangle.slash"
+                    )
+                } description: {
+                    Text(
+                        "Editor connectors can report selected, visible, and "
+                            + "open Markdown or Org documents. Context expires "
+                            + "automatically and never changes permanent indexing."
+                    )
+                    .frame(maxWidth: 520)
+                }
+            } else {
+                List {
+                    if let message = model.contextStatusMessage {
+                        Section {
+                            Label(message, systemImage: "exclamationmark.shield")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Section("Providers") {
+                        ForEach(model.contextProviderIDs, id: \.self) { providerID in
+                            HStack {
+                                Label(providerID, systemImage: "puzzlepiece.extension")
+                                Spacer()
+                                Button("Disconnect", systemImage: "xmark.circle") {
+                                    Task {
+                                        await model.removeContextProvider(providerID)
+                                    }
+                                }
+                                .labelStyle(.iconOnly)
+                                .buttonStyle(.borderless)
+                                .help("Remove this provider’s live context")
+                            }
+                        }
+                    }
+
+                    if !model.currentContext.resolved.isEmpty {
+                        Section("Resolved context") {
+                            ForEach(
+                                model.currentContext.resolved,
+                                id: \.entity.id
+                            ) { item in
+                                Button {
+                                    model.open(.entityID(item.entity.id))
+                                } label: {
+                                    LiveContextRow(item: item)
+                                }
+                                .buttonStyle(.plain)
+                                .appEntityIdentifier(
+                                    BrainSurfacerAppEntityAnnotations.identifier(
+                                        for: item.entity
+                                    )
+                                )
+                                .help("Open in the configured application")
+                            }
+                        }
+                    }
+
+                    if !model.currentContext.unresolved.isEmpty {
+                        Section("Waiting for the catalog") {
+                            ForEach(
+                                Array(model.currentContext.unresolved.enumerated()),
+                                id: \.offset
+                            ) { _, item in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(contextReferenceDescription(
+                                        item.contribution.reference
+                                    ))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    Text(item.providerID + " · "
+                                        + item.contribution.relevance.displayName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 3)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Live Context")
+        .task {
+            while !Task.isCancelled {
+                try? await model.refreshCurrentContext()
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func contextReferenceDescription(_ reference: EntityReference) -> String {
+        switch reference {
+        case let .entityID(identifier):
+            identifier.rawValue
+        case let .file(url):
+            url.path(percentEncoded: false)
+        case let .sourceAnchor(anchor):
+            anchor.fileURL.path(percentEncoded: false)
+        case let .providerLocal(providerID, value):
+            providerID + ":" + value
+        }
+    }
+}
+
+private struct LiveContextRow: View {
+    let item: ResolvedContextItem
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: item.entity.kind == .note ? "doc.text" : "text.alignleft")
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.entity.title)
+                    .font(.headline)
+                Text(item.entity.source.fileURL.path(percentEncoded: false))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                HStack(spacing: 6) {
+                    ForEach(
+                        ContextRelevance.allCases.filter(
+                            Set(item.signals.map(\.relevance)).contains
+                        ),
+                        id: \.self
+                    ) {
+                        Text($0.displayName)
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.quaternary, in: Capsule())
+                    }
+                }
+            }
+            Spacer()
+            Text("\(item.score)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .help("Current context score")
+        }
+        .padding(.vertical, 3)
+    }
+}
+
+private extension ContextRelevance {
+    var displayName: String {
+        switch self {
+        case .selected: "Selected"
+        case .visible: "Visible"
+        case .currentTask: "Current task"
+        case .activeProject: "Active project"
+        case .open: "Open"
+        case .neighboring: "Nearby"
+        case .recent: "Recent"
+        }
     }
 }
 

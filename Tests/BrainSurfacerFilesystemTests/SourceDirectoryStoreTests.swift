@@ -76,6 +76,44 @@ func sourceAccessUsesTheConfiguredEnrollmentStore() async throws {
 }
 
 @Test
+func editorContextCandidatesAreLimitedToEnrolledSourceTrees() async throws {
+    let suiteName = "BrainSurfacerTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    let directory = FileManager.default.temporaryDirectory
+        .appending(
+            path: "BrainSurfacerContext-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+    try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    let store = SourceDirectoryStore(
+        suiteName: suiteName,
+        storageKey: "testContextEnrollment"
+    )
+    _ = try await store.add([directory])
+    let enrolled = directory.appending(path: "Projects/Plan.md")
+    let outside = directory.deletingLastPathComponent()
+        .appending(path: "NotEnrolled/Secret.org")
+    let lookalike = URL(fileURLWithPath: directory.path + "-old/Plan.md")
+
+    let accepted = await store.enrolledDocumentURLs(
+        in: [outside, enrolled, lookalike]
+    )
+
+    #expect(accepted == [enrolled.standardizedFileURL])
+}
+
+@Test
 func sourceConfigurationsPersistWithEnrollmentAndAreRemovedWithIt() async throws {
     let suiteName = "BrainSurfacerTests.\(UUID().uuidString)"
     let storageKey = "testSourcePolicyEnrollments"

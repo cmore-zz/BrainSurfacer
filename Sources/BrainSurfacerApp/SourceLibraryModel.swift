@@ -36,6 +36,8 @@ final class SourceLibraryModel {
     private(set) var isSearching = false
     private(set) var searchErrorMessage: String?
     private(set) var searchPresentationRequest: SearchPresentationRequest?
+    private(set) var currentContext = CurrentContext(resolved: [], unresolved: [])
+    private(set) var contextStatusMessage: String?
     var errorMessage: String?
 
     private let store: SourceDirectoryStore
@@ -43,6 +45,7 @@ final class SourceLibraryModel {
     private let reconciler: SourceReconciler
     private let entitySearch: any EntitySearch
     private let openingCoordinator: EntityOpeningCoordinator
+    private let contextCoordinator: ContextCoordinator
     private let sourceObserver: FSEventsSourceObserver
     private var sourceChangeSubscription: SourceChangeSubscription?
     private var sourceObservationTask: Task<Void, Never>?
@@ -82,6 +85,7 @@ final class SourceLibraryModel {
             catalog: catalog,
             openers: [ConfiguredDocumentOpener(accessProvider: store)]
         )
+        contextCoordinator = ContextCoordinator(catalog: catalog)
         sourceChangeCoalescer = SourceChangeCoalescer { [weak self] sourceURLs in
             await self?.reconcileChangedSources(sourceURLs)
         }
@@ -225,6 +229,59 @@ final class SourceLibraryModel {
         errorMessage = nil
     }
 
+    func ingestEditorContext(_ update: EditorContextUpdate) async {
+        do {
+            let enrolledURLs = await store.enrolledDocumentURLs(
+                in: update.documents.map { $0.anchor.fileURL }
+            )
+            let acceptedDocuments = update.documents.filter {
+                enrolledURLs.contains($0.anchor.fileURL.standardizedFileURL)
+            }
+            let acceptedUpdate = try EditorContextUpdate(
+                providerID: update.providerID,
+                observedAt: update.observedAt,
+                timeToLive: update.timeToLive,
+                documents: acceptedDocuments
+            )
+            let snapshot = try acceptedUpdate.contextSnapshot()
+            await contextCoordinator.ingest(snapshot)
+
+            let rejectedCount = update.documents.count - acceptedDocuments.count
+            contextStatusMessage = rejectedCount == 0
+                ? nil
+                : "Ignored \(rejectedCount) document"
+                    + (rejectedCount == 1 ? "" : "s")
+                    + " outside enrolled sources."
+            try await refreshCurrentContext()
+        } catch {
+            errorMessage = "BrainSurfacer rejected an editor-context update: "
+                + error.localizedDescription
+        }
+    }
+
+    func refreshCurrentContext() async throws {
+        currentContext = try await contextCoordinator.currentContext()
+    }
+
+    func removeContextProvider(_ providerID: String) async {
+        await contextCoordinator.removeProvider(identifiedBy: providerID)
+        contextStatusMessage = nil
+        do {
+            try await refreshCurrentContext()
+        } catch {
+            errorMessage = "BrainSurfacer couldn’t refresh live context: "
+                + error.localizedDescription
+        }
+    }
+
+    var contextProviderIDs: [String] {
+        let resolvedProviders = currentContext.resolved.flatMap {
+            $0.signals.map(\.providerID)
+        }
+        let unresolvedProviders = currentContext.unresolved.map(\.providerID)
+        return Set(resolvedProviders + unresolvedProviders).sorted()
+    }
+
     func search(_ text: String) async {
         searchGeneration += 1
         let generation = searchGeneration
@@ -242,10 +299,16 @@ final class SourceLibraryModel {
 
         do {
             let results = try await entitySearch.search(searchText, limit: 20)
+            let liveContext = (try? await contextCoordinator.currentContext())
+                ?? CurrentContext(resolved: [], unresolved: [])
             guard generation == searchGeneration else {
                 return
             }
-            searchResults = results
+            currentContext = liveContext
+            searchResults = ContextualSearchReranker().rerank(
+                results,
+                using: liveContext
+            )
             isSearching = false
         } catch is CancellationError {
             guard generation == searchGeneration else {

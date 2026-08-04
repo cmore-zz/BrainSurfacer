@@ -36,13 +36,30 @@ Relevant Apple documentation:
 
 ### Projection lifecycle
 
-The current projection schema version is `3`. When the stored version differs,
+The current projection schema version is `4`. When the stored version differs,
 the Apple adapter removes all BrainSurfacer custom and Notes App Entities before
 accepting the first replacement mutation, then records the version. Every
 upsert also removes the same identifier from both projection types before
 indexing it, preventing duplicates if a canonical entity changes projection
 type.
 
-Version 3 separates concise display descriptions from complete searchable
+Version 4 separates concise display descriptions from complete searchable
 section text. Custom and Notes projections write `contentDescription` from the
 entity summary and `textContent` from its bounded body.
+
+## 2026-08-04 — live context and onscreen entity APIs
+
+- The SDK exposes `RelevantEntities` update and removal operations, but the
+  public `AppEntityContext` surface in this seed provides only the
+  domain-specific audio now-playing context. It does not provide a general
+  selected, visible, or open-document context.
+- SwiftUI exposes `appEntityIdentifier(_:)` and `appEntityUIElements`; AppKit
+  exposes corresponding App Entity identifier and UI-element providers. These
+  APIs annotate UI owned by the adopting process. They do not let BrainSurfacer
+  annotate an Emacs or Obsidian window.
+- BrainSurfacer therefore annotates resolved rows in its own Live Context view
+  with the same identity used by its Spotlight projections. Editor-native
+  connectors remain necessary to report the source editor's working set.
+- Editor context remains an ephemeral local ranking signal. This probe does not
+  establish that `RelevantEntities`, App Entity UI annotations, or permanent
+  indexing share lifecycle or privacy semantics.

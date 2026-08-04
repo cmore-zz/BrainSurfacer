@@ -29,7 +29,7 @@ This repository contains an early, architecture-first prototype:
 - `BrainSurfacerApple`: the macOS 27 App Intents/Core Spotlight projection.
 - `BrainSurfacerApp`: a native SwiftUI app for enrolling security-scoped source
   directories, monitoring indexing, manually reindexing, and searching the
-  resulting Spotlight content.
+  resulting Spotlight content and live editor context.
 
 The app currently persists opted-in directories and lets each source choose
 both its content depth and whether discovery stays inside BrainSurfacer or also
@@ -65,10 +65,14 @@ and Siri App Intents. Durable `brainsurfacer://` links survive source moves
 recorded by the catalog. The app can route results to the default macOS application,
 Obsidian with a Markdown heading, or Emacs with a line and column, with safe
 fallback to the default application. A system in-app search intent opens the
-same Index UI and query flow. The parser and Apple projection remain deliberate
-probes rather than final implementations: filesystem change observation,
-broader syntax coverage, and editor connectors are still ahead. SDK-specific
-findings are recorded in
+same Index UI and query flow. A versioned command-line bridge now accepts
+complete, expiring selected/visible/open document snapshots from local editor
+connectors. Only anchors under enrolled sources are accepted; the snapshots
+remain in memory, rerank matched local results, and appear in an App
+Entity-annotated Live Context view. Editor-specific Emacs and Obsidian reporters
+and an authenticated streaming transport are still ahead. See
+[Live editor context](Docs/EDITOR_CONTEXT.md) for the connector contract and
+privacy boundary. SDK-specific findings are recorded in
 [Platform probes](Docs/PLATFORM_PROBES.md).
 
 ## Build

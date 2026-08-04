@@ -89,6 +89,49 @@ func mergedSearchDeduplicatesCanonicalEntitiesAndSurvivesOneFailedBackend() asyn
     #expect(results.map(\.id) == ["catalog:shared", "spotlight:extra"])
 }
 
+@Test
+func liveContextReranksMatchesWithoutDisturbingEqualScoreOrder() {
+    let firstID = EntityID(rawValue: "first")
+    let visibleID = EntityID(rawValue: "visible")
+    let openID = EntityID(rawValue: "open")
+    let source = URL(fileURLWithPath: "/notes/Context.md")
+    let results = [
+        EntitySearchResult(id: "first", entityID: firstID, title: "First"),
+        EntitySearchResult(id: "open", entityID: openID, title: "Open"),
+        EntitySearchResult(id: "visible", entityID: visibleID, title: "Visible"),
+        EntitySearchResult(id: "no-entity", title: "No entity")
+    ]
+    let context = CurrentContext(
+        resolved: [
+            ResolvedContextItem(
+                entity: KnowledgeEntity(
+                    id: visibleID,
+                    kind: .note,
+                    title: "Visible",
+                    source: SourceAnchor(fileURL: source)
+                ),
+                signals: [],
+                score: 110
+            ),
+            ResolvedContextItem(
+                entity: KnowledgeEntity(
+                    id: openID,
+                    kind: .note,
+                    title: "Open",
+                    source: SourceAnchor(fileURL: source)
+                ),
+                signals: [],
+                score: 80
+            )
+        ],
+        unresolved: []
+    )
+
+    let reranked = ContextualSearchReranker().rerank(results, using: context)
+
+    #expect(reranked.map(\.id) == ["visible", "open", "first", "no-entity"])
+}
+
 private struct StubEntitySearch: EntitySearch {
     var results: [EntitySearchResult]
 

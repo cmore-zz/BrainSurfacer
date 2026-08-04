@@ -107,6 +107,16 @@ func aNewProviderSnapshotReplacesItsPreviousState() async throws {
     let context = try await coordinator.currentContext(at: now.addingTimeInterval(2))
 
     #expect(context.resolved.map(\.entity.id) == [task.id])
+
+    await provider.update(
+        observedAt: now.addingTimeInterval(3),
+        contributions: []
+    )
+    try await coordinator.refresh(from: provider)
+    #expect(
+        try await coordinator.currentContext(at: now.addingTimeInterval(3))
+            == CurrentContext(resolved: [], unresolved: [])
+    )
 }
 
 @Test
