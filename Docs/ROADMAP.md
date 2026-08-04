@@ -70,7 +70,7 @@ invariants.
 - Add per-source include/exclude patterns. *(implemented)*
 - Add source-level indexing modes. *(implemented)*
 - Support document metadata that explicitly opts content out of indexing. *(implemented)*
-- Separate Spotlight/Siri enrollment from BrainSurfacer-local discovery.
+- Separate Spotlight/Siri enrollment from BrainSurfacer-local discovery. *(implemented)*
 - Evaluate protected Core Spotlight indexes and make every derived copy visible
   and revocable.
 - Report exactly what was indexed, skipped, retained after failure, or deleted.

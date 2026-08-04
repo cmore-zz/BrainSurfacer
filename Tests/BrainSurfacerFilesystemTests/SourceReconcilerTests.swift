@@ -197,6 +197,57 @@ func reconciliationRevokesAndRestoresDataAcrossIndexingModes() async throws {
 }
 
 @Test
+func reconciliationMovesAStableSourceBetweenLocalAndAppleDiscoveryWithoutReparsing() async throws {
+    let fixture = try ReconciliationFixture()
+    defer { fixture.remove() }
+
+    try "# Discovery boundary\nSearchable locally".write(
+        to: fixture.source.url.appending(path: "Discovery.md"),
+        atomically: true,
+        encoding: .utf8
+    )
+    let catalog = InMemoryEntityCatalog()
+    let index = ReconciliationRecordingIndex()
+    let fingerprints = SourceFingerprintStore(storageURL: fixture.fingerprintURL)
+    let reconciler = SourceReconciler(
+        fingerprintStore: fingerprints,
+        coordinator: IndexingCoordinator(catalog: catalog, permanentIndex: index)
+    )
+
+    let shared = try await reconciler.reconcile(fixture.source)
+    let sharedCatalog = await catalog.entities(from: fixture.source.url)
+    #expect(shared.parsedFileCount == 1)
+    #expect(!sharedCatalog.isEmpty)
+    #expect(try await catalog.permanentlyIndexedEntities() == sharedCatalog)
+
+    let localSource = SourceDirectory(
+        url: fixture.source.url,
+        discoveryScope: .localOnly
+    )
+    let local = try await reconciler.reconcile(localSource)
+    let localCatalog = await catalog.entities(from: fixture.source.url)
+    let localChange = try #require(await index.changes.last)
+
+    #expect(local.parsedFileCount == 0)
+    #expect(local.reusedFileCount == 1)
+    #expect(local.fingerprints == shared.fingerprints)
+    #expect(localCatalog == sharedCatalog)
+    #expect(try await catalog.permanentlyIndexedEntities().isEmpty)
+    #expect(localChange.upserts.isEmpty)
+    #expect(localChange.removals == Set(sharedCatalog.map(\.id)))
+
+    let restored = try await reconciler.reconcile(fixture.source)
+    let restoredChange = try #require(await index.changes.last)
+
+    #expect(restored.parsedFileCount == 0)
+    #expect(restored.reusedFileCount == 1)
+    #expect(restored.fingerprints == local.fingerprints)
+    #expect(restoredChange.upserts.map(\.id) == sharedCatalog.map(\.id))
+    #expect(restoredChange.removals.isEmpty)
+    #expect(try await catalog.permanentlyIndexedEntities() == sharedCatalog)
+}
+
+@Test
 func failedIndexingDoesNotCommitNewFingerprints() async throws {
     let fixture = try ReconciliationFixture()
     defer { fixture.remove() }

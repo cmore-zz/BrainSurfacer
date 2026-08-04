@@ -66,10 +66,11 @@ support headings, hierarchy, tags, links, timestamps, TODO states, properties,
 source blocks, and attachments.
 
 Each enrollment is a versioned record that keeps its security-scoped bookmark,
-path policy, and indexing mode together, so bookmark refreshes and source-root
-moves cannot detach privacy rules from the approved source. Existing bookmark
-arrays and enrollment records without a mode migrate to unrestricted,
-full-content records. Include and exclude rules are root-relative globs;
+path policy, indexing mode, and discovery scope together, so bookmark refreshes
+and source-root moves cannot detach privacy rules from the approved source.
+Existing bookmark arrays and enrollment records without these settings migrate
+to unrestricted, full-content records enrolled in both BrainSurfacer and Apple's
+surfaces. Include and exclude rules are root-relative globs;
 `*` and `?` match within a path component, `**` spans directories, an empty
 include list admits every supported file, and exclusions always win. The
 scanner applies the policy before fingerprinting or reading a file. A policy
@@ -88,6 +89,15 @@ projections; paused roots are not observed with FSEvents and scanning them
 directly performs no filesystem access. Unknown future mode values fail closed
 to paused, while older records with no mode retain the historical full-content
 behavior.
+
+Discovery scope is independent of content depth. `localAndApple` makes a
+source's entities available in BrainSurfacer and enrolls them in the permanent
+Spotlight/Siri projection; `localOnly` retains the same entities in the durable
+catalog and in-app search while revoking their platform projections. Unknown
+future scope values fail closed to `localOnly`. Changing only this setting does
+not enter the resource fingerprint or reparse the source: reconciliation reuses
+the existing canonical entities and journals the required projection additions
+or removals.
 
 The included `OutlineParser` indexes a document plus Markdown and Org outline
 entities. A section body contains only prose before its first child or sibling
@@ -180,8 +190,11 @@ initial and unchanged incremental scan over 20,000 notes; set
 `BRAINSURFACER_RUN_SCALE_TESTS=1` to include it.
 
 The production catalog is a versioned, rebuildable JSON projection in
-Application Support. It preserves source membership, canonical entities,
-provider-local references, and pending index mutations across launches. A
+Application Support. It preserves local source membership, the subset enrolled
+in permanent Apple projections, canonical entities, provider-local references,
+and pending index mutations across launches. Local membership and platform
+membership are intentionally separate: revoking a source from Spotlight/Siri
+does not delete the entities needed by BrainSurfacer search and opening. A
 mutation is idempotent and remains pending after an adapter failure or process
 crash, so startup recovery can replay it without losing stale deletions. The
 in-memory catalog remains available for focused tests and transient tools.
@@ -195,6 +208,10 @@ records behind. Completing that rebuild also discards pending mutations made
 obsolete by the reset and successful all-source projection.
 Permanent-index adapters that do not implement full reset support fail recovery
 explicitly instead of silently accepting a no-op reset.
+
+Catalog schema 2 added explicit platform-projection membership. Schema 1
+records migrate in place by treating their local membership as permanently
+enrolled, which matches the only behavior available before discovery scopes.
 
 The app process owns the catalog's explicit coordinating-writer instance. App
 Entity queries use read-only instances: an invalid catalog produces an empty
@@ -243,13 +260,21 @@ both projection types, which also makes a note-to-custom type transition
 idempotent. Display summaries and full searchable bodies remain distinct in
 both custom and Notes projections: Core Spotlight's content description
 receives the summary while its text content receives the body. Schema-specific
-`IndexedEntityQuery` implementations service partial
-and full Spotlight rebuild requests from the shared durable catalog.
+`IndexedEntityQuery` implementations service partial and full Spotlight rebuild
+requests from only the permanently enrolled subset of the shared durable
+catalog. This prevents a later system reindex request from re-donating a
+local-only source.
 
-In-app search goes back through the `EntitySearch` port. The Apple adapter uses
-`CSUserQuery` for ranked lexical and semantic results and filters on a
-BrainSurfacer App Entity domain, so only opted-in knowledge donations are
-returned. Core and the UI do not construct Spotlight predicates.
+In-app search goes back through the `EntitySearch` port. `CSUserQuery` supplies
+ranked lexical and semantic matches from the BrainSurfacer App Entity domains;
+catalog search considers only `localOnly` entities. The merger preserves each
+backend's ordering, interleaves their result sets before applying the shared
+limit, deduplicates canonical identifiers, and remains usable if one backend
+fails. Thus the historical all-Apple configuration retains Spotlight ranking,
+while local-only sources remain discoverable without being donated to Apple.
+The coordinating writer reuses its loaded catalog snapshot for this interactive
+query path instead of decoding the JSON catalog after every debounce. Core and
+the UI do not construct Spotlight predicates.
 
 Every persistent projection carries a `brainsurfacer://` content URL containing
 its canonical entity identifier; the original source path remains separate

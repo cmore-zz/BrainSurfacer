@@ -16,12 +16,17 @@ public actor IndexingCoordinator {
 
     public func replaceEntities(
         from source: URL,
-        with entities: [KnowledgeEntity]
+        with entities: [KnowledgeEntity],
+        includeInPermanentIndex: Bool = true
     ) async throws {
         if try await ensurePreparedForReindex() == false {
             try await replayPendingChangesAfterPreparation()
         }
-        let pending = try await catalog.stageReplacement(from: source, with: entities)
+        let pending = try await catalog.stageReplacement(
+            from: source,
+            with: entities,
+            includeInPermanentIndex: includeInPermanentIndex
+        )
         try await applyAndAcknowledge(pending)
     }
 

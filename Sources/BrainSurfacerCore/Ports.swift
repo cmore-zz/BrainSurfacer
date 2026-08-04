@@ -55,14 +55,28 @@ public protocol EntityCatalog: Sendable {
         with entities: [KnowledgeEntity]
     ) async throws -> EntityIndexChange
 
+    func replaceEntities(
+        from source: URL,
+        with entities: [KnowledgeEntity],
+        includeInPermanentIndex: Bool
+    ) async throws -> EntityIndexChange
+
     func entities(identifiedBy identifiers: [EntityID]) async throws -> [KnowledgeEntity]
     func entities(from source: URL) async throws -> [KnowledgeEntity]
     func allEntities() async throws -> [KnowledgeEntity]
+    func permanentlyIndexedEntities() async throws -> [KnowledgeEntity]
+    func locallyOnlyEntities() async throws -> [KnowledgeEntity]
     func resolve(_ reference: EntityReference) async throws -> KnowledgeEntity?
 
     func stageReplacement(
         from source: URL,
         with entities: [KnowledgeEntity]
+    ) async throws -> PendingEntityIndexChange
+
+    func stageReplacement(
+        from source: URL,
+        with entities: [KnowledgeEntity],
+        includeInPermanentIndex: Bool
     ) async throws -> PendingEntityIndexChange
 
     func pendingIndexChanges() async throws -> [PendingEntityIndexChange]
@@ -96,6 +110,20 @@ public extension EntityCatalog {
     ) async throws -> PendingEntityIndexChange {
         PendingEntityIndexChange(
             change: try await replaceEntities(from: source, with: entities)
+        )
+    }
+
+    func stageReplacement(
+        from source: URL,
+        with entities: [KnowledgeEntity],
+        includeInPermanentIndex: Bool
+    ) async throws -> PendingEntityIndexChange {
+        PendingEntityIndexChange(
+            change: try await replaceEntities(
+                from: source,
+                with: entities,
+                includeInPermanentIndex: includeInPermanentIndex
+            )
         )
     }
 

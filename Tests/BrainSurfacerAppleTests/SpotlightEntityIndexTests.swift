@@ -297,6 +297,50 @@ func nestedTagAndFolderQueriesResolveFromTheCatalog() async throws {
 }
 
 @Test
+func appEntityQueriesExcludeCatalogEntitiesOutsidePermanentEnrollment() async throws {
+    let catalog = InMemoryEntityCatalog()
+    let sharedSource = URL(fileURLWithPath: "/notes/Shared.md")
+    let localSource = URL(fileURLWithPath: "/notes/Local.md")
+    let shared = KnowledgeEntity(
+        id: EntityID(rawValue: "shared-note"),
+        kind: .note,
+        title: "Shared note",
+        tags: ["shared"],
+        source: SourceAnchor(fileURL: sharedSource)
+    )
+    let local = KnowledgeEntity(
+        id: EntityID(rawValue: "local-note"),
+        kind: .note,
+        title: "Local note",
+        tags: ["private"],
+        source: SourceAnchor(fileURL: localSource)
+    )
+    _ = await catalog.replaceEntities(from: sharedSource, with: [shared])
+    _ = try await catalog.replaceEntities(
+        from: localSource,
+        with: [local],
+        includeInPermanentIndex: false
+    )
+    let sharedProjection = SpotlightNoteEntity(shared)
+    let localProjection = SpotlightNoteEntity(local)
+
+    let notes = try await SpotlightNoteEntity.Query(catalog: catalog).entities(
+        for: [localProjection.id, sharedProjection.id]
+    )
+    let tags = try await SpotlightNoteTagEntity.Query(catalog: catalog).entities(
+        for: [
+            SpotlightNoteTagEntity(name: "private").id,
+            SpotlightNoteTagEntity(name: "shared").id
+        ]
+    )
+
+    #expect(notes.map(\.id) == [sharedProjection.id])
+    #expect(tags.map(\.name) == ["shared"])
+    #expect(await catalog.allEntities().count == 2)
+    #expect(try await catalog.permanentlyIndexedEntities().map(\.id) == [shared.id])
+}
+
+@Test
 func projectionVersionIsPersistedForControlledRebuilds() throws {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("BrainSurfacerProjectionTests-\(UUID().uuidString)")

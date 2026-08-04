@@ -4,6 +4,7 @@ import Foundation
 public actor InMemoryEntityCatalog: EntityCatalog {
     private var entitiesByID: [EntityID: KnowledgeEntity] = [:]
     private var identifiersBySource: [URL: Set<EntityID>] = [:]
+    private var projectedIdentifiersBySource: [URL: Set<EntityID>] = [:]
     private var providerReferences: [ProviderReference: EntityID] = [:]
 
     public init() {}
@@ -11,6 +12,44 @@ public actor InMemoryEntityCatalog: EntityCatalog {
     public func replaceEntities(
         from source: URL,
         with entities: [KnowledgeEntity]
+    ) -> EntityIndexChange {
+        replaceInMemory(
+            from: source,
+            with: entities,
+            includeInPermanentIndex: true
+        )
+    }
+
+    public func replaceEntities(
+        from source: URL,
+        with entities: [KnowledgeEntity],
+        includeInPermanentIndex: Bool
+    ) async throws -> EntityIndexChange {
+        replaceInMemory(
+            from: source,
+            with: entities,
+            includeInPermanentIndex: includeInPermanentIndex
+        )
+    }
+
+    public func stageReplacement(
+        from source: URL,
+        with entities: [KnowledgeEntity],
+        includeInPermanentIndex: Bool
+    ) async throws -> PendingEntityIndexChange {
+        PendingEntityIndexChange(
+            change: replaceInMemory(
+                from: source,
+                with: entities,
+                includeInPermanentIndex: includeInPermanentIndex
+            )
+        )
+    }
+
+    private func replaceInMemory(
+        from source: URL,
+        with entities: [KnowledgeEntity],
+        includeInPermanentIndex: Bool
     ) -> EntityIndexChange {
         let source = source.standardizedFileURL
         let previousSource = EntityIdentityStabilizer.movedSourceCandidate(
@@ -20,15 +59,21 @@ public actor InMemoryEntityCatalog: EntityCatalog {
             entitiesByID: entitiesByID
         ) ?? source
         let previous = identifiersBySource[previousSource, default: []]
+        let previousProjected = projectedIdentifiersBySource[
+            previousSource,
+            default: []
+        ]
         let previousEntities = previous.compactMap { entitiesByID[$0] }
         let entities = EntityIdentityStabilizer.stabilize(
             entities,
             against: previousEntities
         )
         let next = Set(entities.map(\.id))
-        let removals = previous.subtracting(next)
+        let removedLocalIdentifiers = previous.subtracting(next)
+        let nextProjected = includeInPermanentIndex ? next : []
+        let projectionRemovals = previousProjected.subtracting(nextProjected)
 
-        for identifier in removals {
+        for identifier in removedLocalIdentifiers {
             entitiesByID.removeValue(forKey: identifier)
         }
         for entity in entities {
@@ -36,10 +81,15 @@ public actor InMemoryEntityCatalog: EntityCatalog {
         }
         if previousSource != source {
             identifiersBySource.removeValue(forKey: previousSource)
+            projectedIdentifiersBySource.removeValue(forKey: previousSource)
         }
         identifiersBySource[source] = next
+        projectedIdentifiersBySource[source] = nextProjected
 
-        return EntityIndexChange(upserts: entities, removals: removals)
+        return EntityIndexChange(
+            upserts: includeInPermanentIndex ? entities : [],
+            removals: projectionRemovals
+        )
     }
 
     public func entities(identifiedBy identifiers: [EntityID]) -> [KnowledgeEntity] {
@@ -54,6 +104,25 @@ public actor InMemoryEntityCatalog: EntityCatalog {
 
     public func allEntities() -> [KnowledgeEntity] {
         entitiesByID.values.sorted { $0.id.rawValue < $1.id.rawValue }
+    }
+
+    public func permanentlyIndexedEntities() async throws -> [KnowledgeEntity] {
+        let identifiers = permanentlyIndexedIdentifiers()
+        return identifiers.compactMap { entitiesByID[$0] }
+            .sorted { $0.id.rawValue < $1.id.rawValue }
+    }
+
+    public func locallyOnlyEntities() async throws -> [KnowledgeEntity] {
+        let identifiers = Set(entitiesByID.keys)
+            .subtracting(permanentlyIndexedIdentifiers())
+        return identifiers.compactMap { entitiesByID[$0] }
+            .sorted { $0.id.rawValue < $1.id.rawValue }
+    }
+
+    private func permanentlyIndexedIdentifiers() -> Set<EntityID> {
+        projectedIdentifiersBySource.values.reduce(into: Set<EntityID>()) {
+            $0.formUnion($1)
+        }
     }
 
     public func resolve(_ reference: EntityReference) -> KnowledgeEntity? {

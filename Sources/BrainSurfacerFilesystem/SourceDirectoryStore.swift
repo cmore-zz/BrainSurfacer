@@ -6,23 +6,26 @@ public struct SourceDirectory: Identifiable, Hashable, Sendable {
     public var url: URL
     public var pathPolicy: SourcePathPolicy
     public var indexingMode: SourceIndexingMode
+    public var discoveryScope: SourceDiscoveryScope
 
     public init(
         url: URL,
         pathPolicy: SourcePathPolicy = SourcePathPolicy(),
-        indexingMode: SourceIndexingMode = .fullContent
+        indexingMode: SourceIndexingMode = .fullContent,
+        discoveryScope: SourceDiscoveryScope = .localAndApple
     ) {
         let url = url.standardizedFileURL
         id = url.path
         self.url = url
         self.pathPolicy = pathPolicy
         self.indexingMode = indexingMode
+        self.discoveryScope = discoveryScope
     }
 }
 
-/// Persists enrolled source roots, path policies, and indexing modes together,
-/// and leases their security-scoped access. Loading also replaces stale
-/// bookmarks before returning resolved URLs without detaching their settings.
+/// Persists enrolled source roots, path policies, indexing modes, and discovery
+/// scopes together, and leases their security-scoped access. Loading also
+/// replaces stale bookmarks without detaching their settings.
 public actor SourceDirectoryStore: DocumentAccessProvider {
     public enum Error: LocalizedError {
         case notDirectory(URL)
@@ -134,7 +137,8 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
                     identifier: UUID(),
                     bookmark: bookmark,
                     pathPolicy: SourcePathPolicy(),
-                    indexingMode: .fullContent
+                    indexingMode: .fullContent,
+                    discoveryScope: .localAndApple
                 )
             )
         }
@@ -158,6 +162,7 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
         updateEnrollment(
             pathPolicy: pathPolicy,
             indexingMode: nil,
+            discoveryScope: nil,
             for: source
         )
     }
@@ -170,6 +175,21 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
         updateEnrollment(
             pathPolicy: pathPolicy,
             indexingMode: indexingMode,
+            discoveryScope: nil,
+            for: source
+        )
+    }
+
+    public func updateConfiguration(
+        pathPolicy: SourcePathPolicy,
+        indexingMode: SourceIndexingMode,
+        discoveryScope: SourceDiscoveryScope,
+        for source: SourceDirectory
+    ) -> [SourceDirectory] {
+        updateEnrollment(
+            pathPolicy: pathPolicy,
+            indexingMode: indexingMode,
+            discoveryScope: discoveryScope,
             for: source
         )
     }
@@ -177,6 +197,7 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
     private func updateEnrollment(
         pathPolicy: SourcePathPolicy,
         indexingMode: SourceIndexingMode?,
+        discoveryScope: SourceDiscoveryScope?,
         for source: SourceDirectory
     ) -> [SourceDirectory] {
         var enrollments = loadEnrollments()
@@ -187,12 +208,15 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
                 continue
             }
             let updatedMode = indexingMode ?? enrollments[index].indexingMode
+            let updatedScope = discoveryScope ?? enrollments[index].discoveryScope
             guard enrollments[index].pathPolicy != pathPolicy
-                    || enrollments[index].indexingMode != updatedMode else {
+                    || enrollments[index].indexingMode != updatedMode
+                    || enrollments[index].discoveryScope != updatedScope else {
                 continue
             }
             enrollments[index].pathPolicy = pathPolicy
             enrollments[index].indexingMode = updatedMode
+            enrollments[index].discoveryScope = updatedScope
             didChange = true
         }
         if didChange {
@@ -215,7 +239,8 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
             let source = SourceDirectory(
                 url: resolved.url,
                 pathPolicy: enrollment.pathPolicy,
-                indexingMode: enrollment.indexingMode
+                indexingMode: enrollment.indexingMode,
+                discoveryScope: enrollment.discoveryScope
             )
             guard seen.insert(source.id).inserted else {
                 continue
@@ -229,7 +254,8 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
                         identifier: enrollment.identifier,
                         bookmark: refreshed,
                         pathPolicy: enrollment.pathPolicy,
-                        indexingMode: enrollment.indexingMode
+                        indexingMode: enrollment.indexingMode,
+                        discoveryScope: enrollment.discoveryScope
                     )
                 )
             } else {
@@ -288,7 +314,8 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
                 identifier: UUID(),
                 bookmark: $0,
                 pathPolicy: SourcePathPolicy(),
-                indexingMode: .fullContent
+                indexingMode: .fullContent,
+                discoveryScope: .localAndApple
             )
         }
         if !legacyBookmarks.isEmpty {
@@ -307,7 +334,7 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
 }
 
 private struct PersistedSourceEnrollmentState: Codable {
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     var schemaVersion = Self.currentSchemaVersion
     var enrollments: [PersistedSourceEnrollment]
@@ -318,24 +345,28 @@ private struct PersistedSourceEnrollment: Codable, Equatable {
     var bookmark: Data
     var pathPolicy: SourcePathPolicy
     var indexingMode: SourceIndexingMode
+    var discoveryScope: SourceDiscoveryScope
 
     private enum CodingKeys: String, CodingKey {
         case identifier
         case bookmark
         case pathPolicy
         case indexingMode
+        case discoveryScope
     }
 
     init(
         identifier: UUID,
         bookmark: Data,
         pathPolicy: SourcePathPolicy,
-        indexingMode: SourceIndexingMode
+        indexingMode: SourceIndexingMode,
+        discoveryScope: SourceDiscoveryScope
     ) {
         self.identifier = identifier
         self.bookmark = bookmark
         self.pathPolicy = pathPolicy
         self.indexingMode = indexingMode
+        self.discoveryScope = discoveryScope
     }
 
     init(from decoder: any Decoder) throws {
@@ -350,5 +381,9 @@ private struct PersistedSourceEnrollment: Codable, Equatable {
             SourceIndexingMode.self,
             forKey: .indexingMode
         ) ?? .fullContent
+        discoveryScope = try values.decodeIfPresent(
+            SourceDiscoveryScope.self,
+            forKey: .discoveryScope
+        ) ?? .localAndApple
     }
 }

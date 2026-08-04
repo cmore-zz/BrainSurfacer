@@ -194,10 +194,11 @@ private struct SourcesView: View {
             }
         }
         .sheet(item: $editingSource) { source in
-            SourceIndexingSettingsEditor(source: source) { policy, mode in
+            SourceIndexingSettingsEditor(source: source) { policy, mode, scope in
                 model.updateSourceConfiguration(
                     pathPolicy: policy,
                     indexingMode: mode,
+                    discoveryScope: scope,
                     for: source
                 )
             }
@@ -208,18 +209,28 @@ private struct SourcesView: View {
 private struct SourceIndexingSettingsEditor: View {
     @Environment(\.dismiss) private var dismiss
     let source: SourceDirectory
-    let onSave: (SourcePathPolicy, SourceIndexingMode) -> Void
+    let onSave: (
+        SourcePathPolicy,
+        SourceIndexingMode,
+        SourceDiscoveryScope
+    ) -> Void
     @State private var indexingMode: SourceIndexingMode
+    @State private var discoveryScope: SourceDiscoveryScope
     @State private var includePatterns: String
     @State private var excludePatterns: String
 
     init(
         source: SourceDirectory,
-        onSave: @escaping (SourcePathPolicy, SourceIndexingMode) -> Void
+        onSave: @escaping (
+            SourcePathPolicy,
+            SourceIndexingMode,
+            SourceDiscoveryScope
+        ) -> Void
     ) {
         self.source = source
         self.onSave = onSave
         _indexingMode = State(initialValue: source.indexingMode)
+        _discoveryScope = State(initialValue: source.discoveryScope)
         _includePatterns = State(
             initialValue: source.pathPolicy.includePatterns.joined(separator: "\n")
         )
@@ -246,6 +257,17 @@ private struct SourceIndexingSettingsEditor: View {
                         }
                     }
                     Text(indexingMode.explanation)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Discovery") {
+                    Picker("Available in", selection: $discoveryScope) {
+                        ForEach(SourceDiscoveryScope.allCases, id: \.self) { scope in
+                            Text(scope.displayName).tag(scope)
+                        }
+                    }
+                    Text(discoveryScope.explanation)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -288,7 +310,8 @@ private struct SourceIndexingSettingsEditor: View {
                                 includePatterns: patternLines(includePatterns),
                                 excludePatterns: patternLines(excludePatterns)
                             ),
-                            indexingMode
+                            indexingMode,
+                            discoveryScope
                         )
                         dismiss()
                     }
@@ -306,7 +329,28 @@ private struct SourceIndexingSettingsEditor: View {
 
 private extension SourceDirectory {
     var indexingConfigurationSummary: String {
-        indexingMode.displayName + " · " + pathPolicy.displaySummary
+        indexingMode.displayName + " · " + discoveryScope.displayName
+            + " · " + pathPolicy.displaySummary
+    }
+}
+
+private extension SourceDiscoveryScope {
+    var displayName: String {
+        switch self {
+        case .localAndApple:
+            "Spotlight & Siri"
+        case .localOnly:
+            "BrainSurfacer only"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .localAndApple:
+            "Keep this source searchable in BrainSurfacer and donate its derived entities to Spotlight and Siri."
+        case .localOnly:
+            "Keep this source searchable only inside BrainSurfacer. Remove and withhold its Spotlight and Siri projections."
+        }
     }
 }
 

@@ -53,15 +53,20 @@ final class SourceLibraryModel {
         store: SourceDirectoryStore = SourceDirectoryStore(),
         scanner: SourceDirectoryScanner = SourceDirectoryScanner(),
         fingerprintStore: SourceFingerprintStore = SourceFingerprintStore(),
-        entitySearch: any EntitySearch = SpotlightEntitySearch(),
+        entitySearch: (any EntitySearch)? = nil,
         sourceObserver: FSEventsSourceObserver = FSEventsSourceObserver()
     ) {
         self.store = store
-        self.entitySearch = entitySearch
         self.sourceObserver = sourceObserver
         let catalog = PersistentEntityCatalog(
             storageURL: PersistentEntityCatalog.defaultStorageURL(),
             accessMode: .coordinatingWriter
+        )
+        self.entitySearch = entitySearch ?? MergedEntitySearch(
+            searches: [
+                SpotlightEntitySearch(),
+                CatalogEntitySearch(catalog: catalog)
+            ]
         )
         let coordinator = IndexingCoordinator(
             catalog: catalog,
@@ -135,16 +140,19 @@ final class SourceLibraryModel {
     func updateSourceConfiguration(
         pathPolicy: SourcePathPolicy,
         indexingMode: SourceIndexingMode,
+        discoveryScope: SourceDiscoveryScope,
         for source: SourceDirectory
     ) {
         guard pathPolicy != source.pathPolicy
-                || indexingMode != source.indexingMode else {
+                || indexingMode != source.indexingMode
+                || discoveryScope != source.discoveryScope else {
             return
         }
         Task {
             sources = await store.updateConfiguration(
                 pathPolicy: pathPolicy,
                 indexingMode: indexingMode,
+                discoveryScope: discoveryScope,
                 for: source
             )
             restartSourceObservation()

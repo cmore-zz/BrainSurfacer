@@ -45,7 +45,7 @@ public struct SpotlightNoteTagEntity: AppEntity {
         public func entities(for identifiers: [String]) async throws -> [SpotlightNoteTagEntity] {
             let requested = Set(identifiers)
             var projectionByID: [String: SpotlightNoteTagEntity] = [:]
-            for entity in try await catalog.allEntities() {
+            for entity in try await catalog.permanentlyIndexedEntities() {
                 for tag in entity.tags {
                     let projection = SpotlightNoteTagEntity(name: tag)
                     if requested.contains(projection.id) {
@@ -127,7 +127,8 @@ public struct SpotlightNoteFolderEntity {
         public func entities(for identifiers: [String]) async throws -> [SpotlightNoteFolderEntity] {
             let requested = Set(identifiers)
             var projectionByID: [String: SpotlightNoteFolderEntity] = [:]
-            for entity in try await catalog.allEntities() where entity.kind == .note {
+            for entity in try await catalog.permanentlyIndexedEntities()
+                where entity.kind == .note {
                 let projection = SpotlightNoteFolderEntity(
                     directoryURL: entity.source.fileURL.deletingLastPathComponent()
                 )
@@ -227,7 +228,7 @@ public struct SpotlightNoteEntity: IndexedEntity {
         }
 
         public func entities(for identifiers: [String]) async throws -> [SpotlightNoteEntity] {
-            let projections = try await catalog.allEntities()
+            let projections = try await catalog.permanentlyIndexedEntities()
                 .filter { $0.kind == .note }
                 .map(SpotlightNoteEntity.init)
             let projectionByID = Dictionary(
@@ -262,7 +263,7 @@ public struct SpotlightNoteEntity: IndexedEntity {
         ) async throws {
             let index = Self.index(for: indexDescription)
             try await index.deleteAppEntities(ofType: SpotlightNoteEntity.self)
-            let entities = try await catalog.allEntities()
+            let entities = try await catalog.permanentlyIndexedEntities()
                 .filter { $0.kind == .note }
                 .map(SpotlightNoteEntity.init)
             if !entities.isEmpty {
