@@ -10,6 +10,7 @@ struct SourceIndexStatus: Equatable {
         case waiting
         case indexing
         case indexed
+        case paused
         case failed(String)
     }
 
@@ -131,15 +132,22 @@ final class SourceLibraryModel {
         }
     }
 
-    func updatePathPolicy(
-        _ pathPolicy: SourcePathPolicy,
+    func updateSourceConfiguration(
+        pathPolicy: SourcePathPolicy,
+        indexingMode: SourceIndexingMode,
         for source: SourceDirectory
     ) {
-        guard pathPolicy != source.pathPolicy else {
+        guard pathPolicy != source.pathPolicy
+                || indexingMode != source.indexingMode else {
             return
         }
         Task {
-            sources = await store.updatePathPolicy(pathPolicy, for: source)
+            sources = await store.updateConfiguration(
+                pathPolicy: pathPolicy,
+                indexingMode: indexingMode,
+                for: source
+            )
+            restartSourceObservation()
             guard let updatedSource = sources.first(where: { $0.id == source.id }) else {
                 return
             }
@@ -190,7 +198,7 @@ final class SourceLibraryModel {
         do {
             let result = try await reconciler.reconcile(source)
             indexStatusBySource[source.id] = SourceIndexStatus(
-                state: .indexed,
+                state: source.indexingMode == .paused ? .paused : .indexed,
                 fileCount: result.fileCount,
                 entityCount: result.entities.count,
                 diagnosticCount: result.diagnostics.count,
@@ -314,7 +322,8 @@ final class SourceLibraryModel {
     }
 
     private func restartSourceObservation() {
-        guard !sources.isEmpty else {
+        let observedSources = sources.filter { $0.indexingMode != .paused }
+        guard !observedSources.isEmpty else {
             sourceObservationTask?.cancel()
             sourceObservationTask = nil
             sourceChangeSubscription?.cancel()
@@ -323,7 +332,7 @@ final class SourceLibraryModel {
         }
 
         do {
-            let subscription = try sourceObserver.observe(sources)
+            let subscription = try sourceObserver.observe(observedSources)
             let observationTask = Task { [weak self] in
                 for await sourceURLs in subscription.events {
                     guard !Task.isCancelled, let self else {

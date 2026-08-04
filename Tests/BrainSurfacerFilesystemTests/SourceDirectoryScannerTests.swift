@@ -258,6 +258,90 @@ func scannerAppliesPathPoliciesAndReconcilesPolicyChanges() async throws {
 }
 
 @Test
+func scannerAppliesIndexingModesAcrossFingerprintReuse() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerModes-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    let fileURL = root.appending(path: "Plan.org")
+    try """
+    * Private plan :work:
+    SCHEDULED: <2026-08-04 Tue>
+    Secret body with https://example.com/private.
+    """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+    let scanner = SourceDirectoryScanner()
+    let fullSource = SourceDirectory(url: root)
+    let full = try await scanner.scan(fullSource)
+    #expect(full.entities.contains { $0.body?.contains("Secret body") == true })
+    #expect(full.entities.contains { !$0.links.isEmpty })
+
+    let metadataSource = SourceDirectory(
+        url: root,
+        indexingMode: .metadataOnly
+    )
+    let metadata = try await scanner.scan(
+        metadataSource,
+        previousFingerprints: full.fingerprints,
+        previousEntities: full.entities
+    )
+
+    #expect(metadata.parsedFileCount == 1)
+    #expect(metadata.reusedFileCount == 0)
+    #expect(metadata.entities.allSatisfy {
+        $0.body == nil && $0.summary == nil && $0.links.isEmpty
+    })
+    #expect(metadata.entities.contains { $0.tags.contains("work") })
+    #expect(metadata.entities.contains { !$0.dates.isEmpty })
+    #expect(metadata.entities.contains { $0.source.byteOffset != nil })
+    #expect(metadata.fingerprints.values.allSatisfy {
+        $0.indexingMode == .metadataOnly
+    })
+
+    let unchangedMetadata = try await scanner.scan(
+        metadataSource,
+        previousFingerprints: metadata.fingerprints,
+        previousEntities: metadata.entities
+    )
+    #expect(unchangedMetadata.parsedFileCount == 0)
+    #expect(unchangedMetadata.reusedFileCount == 1)
+
+    let paused = try await scanner.scan(
+        SourceDirectory(url: root, indexingMode: .paused),
+        previousFingerprints: metadata.fingerprints,
+        previousEntities: metadata.entities
+    )
+    #expect(paused.fileCount == 0)
+    #expect(paused.entities.isEmpty)
+    #expect(paused.fingerprints.isEmpty)
+
+    let resumed = try await scanner.scan(fullSource)
+    #expect(resumed.parsedFileCount == 1)
+    #expect(resumed.entities.contains { $0.body?.contains("Secret body") == true })
+}
+
+@Test
+func pausedScannerDoesNotAccessTheSourceDirectory() async throws {
+    let missingRoot = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerPausedMissing-\(UUID().uuidString)", directoryHint: .isDirectory)
+
+    let result = try await SourceDirectoryScanner().scan(
+        SourceDirectory(url: missingRoot, indexingMode: .paused)
+    )
+
+    #expect(result.fileCount == 0)
+    #expect(result.entities.isEmpty)
+    #expect(result.diagnostics.isEmpty)
+    #expect(result.fingerprints.isEmpty)
+}
+
+@Test
 func incompleteEnumerationRetainsIncludedFilesButDropsPolicyExclusions() async throws {
     let root = FileManager.default.temporaryDirectory
         .appending(path: "BrainSurfacerIncompletePolicy-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -320,6 +404,59 @@ func incompleteEnumerationRetainsIncludedFilesButDropsPolicyExclusions() async t
     #expect(!result.entities.contains {
         $0.source.fileURL.standardizedFileURL == excludedFile.standardizedFileURL
     })
+}
+
+@Test
+func incompleteEnumerationKeepsRetainedEntitiesAndFingerprintsAtTheStrictestMode() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerIncompleteMode-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    let fileURL = root.appending(path: "Private.md")
+    try "# Plan\nPrivate details".write(
+        to: fileURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let scanner = SourceDirectoryScanner()
+    let full = try await scanner.scan(SourceDirectory(url: root))
+    let incompleteScanner = SourceDirectoryScanner(
+        enumerationSnapshot: SourceDirectoryEnumerationSnapshot(
+            candidateURLs: [],
+            diagnostics: [],
+            wasComplete: false
+        )
+    )
+    let metadata = try await incompleteScanner.scan(
+        SourceDirectory(url: root, indexingMode: .metadataOnly),
+        previousFingerprints: full.fingerprints,
+        previousEntities: full.entities
+    )
+
+    #expect(metadata.entities.allSatisfy { $0.body == nil })
+    #expect(metadata.fingerprints[fileURL.standardizedFileURL]?.indexingMode == .metadataOnly)
+
+    let restored = try await scanner.scan(
+        SourceDirectory(url: root),
+        previousFingerprints: metadata.fingerprints,
+        previousEntities: metadata.entities
+    )
+
+    #expect(restored.parsedFileCount == 1)
+    #expect(restored.entities.contains { $0.body?.contains("Private details") == true })
+
+    let incompleteFull = try await incompleteScanner.scan(
+        SourceDirectory(url: root),
+        previousFingerprints: metadata.fingerprints,
+        previousEntities: metadata.entities
+    )
+    #expect(incompleteFull.fingerprints[fileURL.standardizedFileURL]?.indexingMode == .metadataOnly)
 }
 
 @Test

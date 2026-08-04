@@ -104,6 +104,17 @@ public struct SourceDirectoryScanner: Sendable {
         previousFingerprints: [URL: SourceFileFingerprint] = [:],
         previousEntities: [KnowledgeEntity] = []
     ) async throws -> SourceScanResult {
+        try Task.checkCancellation()
+        guard source.indexingMode != .paused else {
+            return SourceScanResult(
+                source: source,
+                fileCount: 0,
+                parsedFileCount: 0,
+                entities: [],
+                diagnostics: [],
+                fingerprints: [:]
+            )
+        }
         let root = source.url
         let didStartAccess = root.startAccessingSecurityScopedResource()
         defer {
@@ -123,6 +134,7 @@ public struct SourceDirectoryScanner: Sendable {
         var enumeration = try enumerateFiles(
             at: root,
             pathPolicy: source.pathPolicy,
+            indexingMode: source.indexingMode,
             previousFingerprints: previousFingerprints,
             previousEntitiesByFile: previousEntitiesByFile
         )
@@ -147,12 +159,21 @@ public struct SourceDirectoryScanner: Sendable {
                     contentsOf: previousEntitiesByFile[fileURL, default: []]
                 )
                 if let previousFingerprint = previousFingerprints[fileURL] {
-                    enumeration.fingerprints[fileURL] = previousFingerprint
+                    var retainedFingerprint = previousFingerprint
+                    if source.indexingMode == .metadataOnly {
+                        retainedFingerprint.indexingMode = .metadataOnly
+                    }
+                    enumeration.fingerprints[fileURL] = retainedFingerprint
                 }
                 enumeration.fileCount += 1
             }
         }
 
+        // Privacy-critical: keep this as the final entity transform so fresh,
+        // reused, and last-known-good entities are stripped before projection.
+        enumeration.entities = source.indexingMode.applying(
+            to: enumeration.entities
+        )
         enumeration.entities.sort(by: entitiesAreInDeterministicOrder)
         enumeration.diagnostics.sort {
             $0.fileURL.path.localizedStandardCompare($1.fileURL.path)
@@ -173,6 +194,7 @@ public struct SourceDirectoryScanner: Sendable {
     private func enumerateFiles(
         at root: URL,
         pathPolicy: SourcePathPolicy,
+        indexingMode: SourceIndexingMode,
         previousFingerprints: [URL: SourceFileFingerprint],
         previousEntitiesByFile: [URL: [KnowledgeEntity]]
     ) throws -> SourceFileEnumeration {
@@ -191,6 +213,7 @@ public struct SourceDirectoryScanner: Sendable {
                     candidateURL,
                     root: root,
                     pathPolicy: pathPolicy,
+                    indexingMode: indexingMode,
                     resourceKeys: resourceKeys,
                     previousFingerprints: previousFingerprints,
                     previousEntitiesByFile: previousEntitiesByFile,
@@ -223,6 +246,7 @@ public struct SourceDirectoryScanner: Sendable {
                 candidateURL,
                 root: root,
                 pathPolicy: pathPolicy,
+                indexingMode: indexingMode,
                 resourceKeys: resourceKeys,
                 previousFingerprints: previousFingerprints,
                 previousEntitiesByFile: previousEntitiesByFile,
@@ -237,6 +261,7 @@ public struct SourceDirectoryScanner: Sendable {
         _ candidateURL: URL,
         root: URL,
         pathPolicy: SourcePathPolicy,
+        indexingMode: SourceIndexingMode,
         resourceKeys: Set<URLResourceKey>,
         previousFingerprints: [URL: SourceFileFingerprint],
         previousEntitiesByFile: [URL: [KnowledgeEntity]],
@@ -261,7 +286,10 @@ public struct SourceDirectoryScanner: Sendable {
                 return
             }
             result.fileCount += 1
-            let currentFingerprint = fingerprint(from: values)
+            let currentFingerprint = fingerprint(
+                from: values,
+                indexingMode: indexingMode
+            )
             if let currentFingerprint,
                currentFingerprint == previousFingerprints[fileURL],
                !previousFileEntities.isEmpty {
@@ -354,14 +382,18 @@ public struct SourceDirectoryScanner: Sendable {
         }
     }
 
-    private func fingerprint(from values: URLResourceValues) -> SourceFileFingerprint? {
+    private func fingerprint(
+        from values: URLResourceValues,
+        indexingMode: SourceIndexingMode
+    ) -> SourceFileFingerprint? {
         guard let modifiedAt = values.contentModificationDate,
               let fileSize = values.fileSize else {
             return nil
         }
         return SourceFileFingerprint(
             modifiedAt: modifiedAt,
-            fileSize: Int64(fileSize)
+            fileSize: Int64(fileSize),
+            indexingMode: indexingMode
         )
     }
 

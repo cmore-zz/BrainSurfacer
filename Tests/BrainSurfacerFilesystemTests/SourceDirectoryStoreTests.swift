@@ -76,7 +76,7 @@ func sourceAccessUsesTheConfiguredEnrollmentStore() async throws {
 }
 
 @Test
-func sourcePathPoliciesPersistWithEnrollmentAndAreRemovedWithIt() async throws {
+func sourceConfigurationsPersistWithEnrollmentAndAreRemovedWithIt() async throws {
     let suiteName = "BrainSurfacerTests.\(UUID().uuidString)"
     let storageKey = "testSourcePolicyEnrollments"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -101,6 +101,13 @@ func sourcePathPoliciesPersistWithEnrollmentAndAreRemovedWithIt() async throws {
         excludePatterns: ["Projects/Archive/**"]
     )
     let updated = try #require(
+        await store.updateConfiguration(
+            pathPolicy: policy,
+            indexingMode: .metadataOnly,
+            for: source
+        ).first
+    )
+    let pathOnlyUpdateFromStaleSource = try #require(
         await store.updatePathPolicy(policy, for: source).first
     )
     let relaunched = SourceDirectoryStore(
@@ -109,11 +116,15 @@ func sourcePathPoliciesPersistWithEnrollmentAndAreRemovedWithIt() async throws {
     )
 
     #expect(updated.pathPolicy == policy)
+    #expect(updated.indexingMode == .metadataOnly)
+    #expect(pathOnlyUpdateFromStaleSource.indexingMode == .metadataOnly)
     #expect(await relaunched.load().first?.pathPolicy == policy)
+    #expect(await relaunched.load().first?.indexingMode == .metadataOnly)
 
     _ = await relaunched.remove(updated)
     let reenrolled = try #require(try await relaunched.add([directory]).first)
     #expect(reenrolled.pathPolicy.isUnrestricted)
+    #expect(reenrolled.indexingMode == .fullContent)
 }
 
 @Test
@@ -151,6 +162,7 @@ func legacyBookmarkArraysMigrateToUnrestrictedEnrollmentRecords() async throws {
 
     #expect(migrated.url == directory.standardizedFileURL)
     #expect(migrated.pathPolicy.isUnrestricted)
+    #expect(migrated.indexingMode == .fullContent)
     #expect(defaults.data(forKey: storageKey) != nil)
     #expect(await relaunched.load() == [migrated])
 }
@@ -180,7 +192,7 @@ func decodableFutureEnrollmentSchemasRemainVisibleOnDowngrade() async throws {
     var storedObject = try #require(
         JSONSerialization.jsonObject(with: storedData) as? [String: Any]
     )
-    storedObject["schemaVersion"] = 2
+    storedObject["schemaVersion"] = 3
     storedObject["futureMetadata"] = ["preservedByNewerWriter": true]
     let futureData = try JSONSerialization.data(withJSONObject: storedObject)
     defaults.set(futureData, forKey: storageKey)
@@ -198,6 +210,50 @@ func decodableFutureEnrollmentSchemasRemainVisibleOnDowngrade() async throws {
     #expect(loaded == [enrolled])
     #expect(unchanged == [enrolled])
     #expect(defaults.data(forKey: storageKey) == futureData)
+}
+
+@Test
+func enrollmentRecordsWithoutModesDefaultToFullContent() async throws {
+    let suiteName = "BrainSurfacerTests.\(UUID().uuidString)"
+    let storageKey = "testModeMigrationEnrollments"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    let directory = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerModeMigration-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    let writer = SourceDirectoryStore(suiteName: suiteName, storageKey: storageKey)
+    _ = try await writer.add([directory])
+    let storedData = try #require(defaults.data(forKey: storageKey))
+    var storedObject = try #require(
+        JSONSerialization.jsonObject(with: storedData) as? [String: Any]
+    )
+    var enrollments = try #require(storedObject["enrollments"] as? [[String: Any]])
+    enrollments[0].removeValue(forKey: "indexingMode")
+    storedObject["schemaVersion"] = 1
+    storedObject["enrollments"] = enrollments
+    defaults.set(
+        try JSONSerialization.data(withJSONObject: storedObject),
+        forKey: storageKey
+    )
+
+    let migrated = SourceDirectoryStore(
+        suiteName: suiteName,
+        storageKey: storageKey
+    )
+    let source = try #require(await migrated.load().first)
+
+    #expect(source.indexingMode == .fullContent)
+    #expect(source.pathPolicy.isUnrestricted)
 }
 
 @Test

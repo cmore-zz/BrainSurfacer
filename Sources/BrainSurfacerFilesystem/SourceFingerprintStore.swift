@@ -4,15 +4,36 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
     public var modifiedAt: Date
     public var fileSize: Int64
     public var parserRevision: Int
+    public var indexingMode: SourceIndexingMode
 
     public init(
         modifiedAt: Date,
         fileSize: Int64,
-        parserRevision: Int = OutlineParser.outputRevision
+        parserRevision: Int = OutlineParser.outputRevision,
+        indexingMode: SourceIndexingMode = .fullContent
     ) {
         self.modifiedAt = modifiedAt
         self.fileSize = fileSize
         self.parserRevision = parserRevision
+        self.indexingMode = indexingMode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case modifiedAt
+        case fileSize
+        case parserRevision
+        case indexingMode
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        modifiedAt = try values.decode(Date.self, forKey: .modifiedAt)
+        fileSize = try values.decode(Int64.self, forKey: .fileSize)
+        parserRevision = try values.decode(Int.self, forKey: .parserRevision)
+        indexingMode = try values.decodeIfPresent(
+            SourceIndexingMode.self,
+            forKey: .indexingMode
+        ) ?? .fullContent
     }
 }
 

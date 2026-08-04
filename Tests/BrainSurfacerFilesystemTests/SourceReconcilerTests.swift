@@ -83,6 +83,66 @@ func reconciliationRemovesFilesExcludedByAChangedSourcePolicy() async throws {
 }
 
 @Test
+func reconciliationRevokesAndRestoresDataAcrossIndexingModes() async throws {
+    let fixture = try ReconciliationFixture()
+    defer { fixture.remove() }
+
+    try """
+    # Launch plan
+    Secret launch details at https://example.com/private.
+    """.write(
+        to: fixture.source.url.appending(path: "Plan.md"),
+        atomically: true,
+        encoding: .utf8
+    )
+    let catalog = InMemoryEntityCatalog()
+    let index = ReconciliationRecordingIndex()
+    let fingerprints = SourceFingerprintStore(storageURL: fixture.fingerprintURL)
+    let reconciler = SourceReconciler(
+        fingerprintStore: fingerprints,
+        coordinator: IndexingCoordinator(catalog: catalog, permanentIndex: index)
+    )
+
+    let full = try await reconciler.reconcile(fixture.source)
+    #expect(full.entities.contains { $0.body?.contains("Secret launch") == true })
+
+    let metadataSource = SourceDirectory(
+        url: fixture.source.url,
+        indexingMode: .metadataOnly
+    )
+    let metadata = try await reconciler.reconcile(metadataSource)
+    let metadataCatalog = await catalog.entities(from: fixture.source.url)
+    let metadataChange = try #require(await index.changes.last)
+    #expect(metadata.parsedFileCount == 1)
+    #expect(metadataCatalog.allSatisfy {
+        $0.body == nil && $0.summary == nil && $0.links.isEmpty
+    })
+    #expect(metadataChange.upserts.allSatisfy {
+        $0.body == nil && $0.summary == nil && $0.links.isEmpty
+    })
+    #expect(await fingerprints.fingerprints(for: fixture.source.url).values.allSatisfy {
+        $0.indexingMode == .metadataOnly
+    })
+
+    let pausedSource = SourceDirectory(
+        url: fixture.source.url,
+        indexingMode: .paused
+    )
+    let paused = try await reconciler.reconcile(pausedSource)
+    let pauseChange = try #require(await index.changes.last)
+    #expect(paused.fileCount == 0)
+    #expect(await catalog.entities(from: fixture.source.url).isEmpty)
+    #expect(await fingerprints.fingerprints(for: fixture.source.url).isEmpty)
+    #expect(pauseChange.removals == Set(metadataCatalog.map(\.id)))
+
+    let resumed = try await reconciler.reconcile(fixture.source)
+    #expect(resumed.parsedFileCount == 1)
+    #expect(await catalog.entities(from: fixture.source.url).contains {
+        $0.body?.contains("Secret launch") == true
+    })
+}
+
+@Test
 func failedIndexingDoesNotCommitNewFingerprints() async throws {
     let fixture = try ReconciliationFixture()
     defer { fixture.remove() }
@@ -137,6 +197,41 @@ func fingerprintWriteFailureDoesNotTurnSuccessfulIndexingIntoFailure() async thr
     #expect(result.parsedFileCount == 1)
     #expect(await catalog.entities(from: fixture.source.url).count == 2)
     #expect(await index.changes.count == 1)
+}
+
+@Test
+func pausedReconciliationReportsFingerprintRemovalFailure() async throws {
+    let fixture = try ReconciliationFixture()
+    defer { fixture.remove() }
+
+    let fileInsteadOfDirectory = fixture.directoryURL.appending(path: "blocked")
+    try "not a directory".write(
+        to: fileInsteadOfDirectory,
+        atomically: true,
+        encoding: .utf8
+    )
+    let catalog = InMemoryEntityCatalog()
+    let reconciler = SourceReconciler(
+        fingerprintStore: SourceFingerprintStore(
+            storageURL: fileInsteadOfDirectory.appending(path: "fingerprints.json")
+        ),
+        coordinator: IndexingCoordinator(
+            catalog: catalog,
+            permanentIndex: ReconciliationRecordingIndex()
+        )
+    )
+    var didThrow = false
+
+    do {
+        _ = try await reconciler.reconcile(
+            SourceDirectory(url: fixture.source.url, indexingMode: .paused)
+        )
+    } catch {
+        didThrow = true
+    }
+
+    #expect(didThrow)
+    #expect(await catalog.entities(from: fixture.source.url).isEmpty)
 }
 
 @Test

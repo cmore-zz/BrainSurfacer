@@ -65,16 +65,29 @@ semantic entities and diagnostics. They must retain enough source structure to
 support headings, hierarchy, tags, links, timestamps, TODO states, properties,
 source blocks, and attachments.
 
-Each enrollment is a versioned record that keeps its security-scoped bookmark
-and path policy together, so bookmark refreshes and source-root moves cannot
-detach privacy rules from the approved source. Existing bookmark arrays migrate
-to unrestricted records. Include and exclude rules are root-relative globs;
+Each enrollment is a versioned record that keeps its security-scoped bookmark,
+path policy, and indexing mode together, so bookmark refreshes and source-root
+moves cannot detach privacy rules from the approved source. Existing bookmark
+arrays and enrollment records without a mode migrate to unrestricted,
+full-content records. Include and exclude rules are root-relative globs;
 `*` and `?` match within a path component, `**` spans directories, an empty
 include list admits every supported file, and exclusions always win. The
 scanner applies the policy before fingerprinting or reading a file. A policy
 change therefore flows through ordinary reconciliation: newly excluded files
 lose their catalog, fingerprint, and platform projections even if enumeration
 is incomplete, while newly included files are parsed on the next pass.
+
+Every source has one of three indexing modes. Full content retains the existing
+titles, structure, summaries, links, and searchable bodies. Metadata-only keeps
+titles, hierarchy, tags, dates, identity metadata, and precise source anchors,
+but removes bodies, summaries, extracted links, non-structural link or mention
+relationships, and body-truncation metadata before entities reach the durable
+catalog or an Apple projection. Paused keeps the enrollment and its settings
+while removing that source's catalog entities, fingerprints, and platform
+projections; paused roots are not observed with FSEvents and scanning them
+directly performs no filesystem access. Unknown future mode values fail closed
+to paused, while older records with no mode retain the historical full-content
+behavior.
 
 The included `OutlineParser` indexes a document plus Markdown and Org outline
 entities. A section body contains only prose before its first child or sibling
@@ -109,11 +122,13 @@ mutation:
    accept that replacement.
 
 The fingerprint cache is separately versioned, disposable JSON in Application
-Support. Each fingerprint includes the parser-output revision as well as file
-modification date and size, so parser changes invalidate otherwise-unchanged
-files. Missing, invalid, or unwritable fingerprint state causes reparsing rather
-than catalog deletion or a false indexing failure. Catalog recovery also
-reparses because an empty recovered catalog has no entities eligible for reuse.
+Support. Each fingerprint includes the parser-output revision and indexing mode
+as well as file modification date and size, so parser or mode changes invalidate
+otherwise-unchanged files. This is required when restoring full content after a
+metadata-only interval. Missing, invalid, or unwritable fingerprint state causes
+reparsing rather than catalog deletion or a false indexing failure. Catalog
+recovery also reparses because an empty recovered catalog has no entities
+eligible for reuse.
 
 Modification date and size avoid reading unchanged files, but they can miss an
 in-place, same-size edit made by a tool that also preserves the timestamp. This

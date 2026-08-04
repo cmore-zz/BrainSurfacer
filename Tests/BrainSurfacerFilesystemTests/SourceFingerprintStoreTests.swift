@@ -34,3 +34,26 @@ func fileFingerprintsPersistPerSourceAndCanBeRemoved() async throws {
     try await relaunched.removeFingerprints(for: source)
     #expect(await writer.fingerprints(for: source).isEmpty)
 }
+
+@Test
+func fingerprintsWithoutIndexingModesDefaultToFullContent() throws {
+    let original = SourceFileFingerprint(
+        modifiedAt: Date(timeIntervalSince1970: 100),
+        fileSize: 10
+    )
+    let encoded = try JSONEncoder().encode(original)
+    var object = try #require(
+        JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    )
+    object.removeValue(forKey: "indexingMode")
+
+    let decoded = try JSONDecoder().decode(
+        SourceFileFingerprint.self,
+        from: JSONSerialization.data(withJSONObject: object)
+    )
+
+    #expect(decoded.indexingMode == .fullContent)
+    #expect(decoded.modifiedAt == original.modifiedAt)
+    #expect(decoded.fileSize == original.fileSize)
+    #expect(decoded.parserRevision == original.parserRevision)
+}
