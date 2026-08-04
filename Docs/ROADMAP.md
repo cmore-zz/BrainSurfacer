@@ -93,8 +93,13 @@ invariants.
   *(initial bounded snapshot bridge implemented; authenticated streaming IPC pending)*
 - Annotate BrainSurfacer's own visible context rows with their existing App
   Entity identity. *(implemented)*
-- Implement Emacs and Obsidian visible/working-set reporting and precise opener
-  capabilities.
+- Report Emacs file-visiting Org/Markdown selected, visible, and open buffers
+  through a debounced, expiring connector. *(implemented)*
+- Extend Emacs context to Org Agenda, capture, narrowed subtree, heading, and
+  selection anchors.
+- Implement Obsidian visible/working-set reporting.
+- Keep precise Emacs and Obsidian opener capabilities aligned with their
+  connector anchors.
 - Keep editor context ephemeral and consented; do not imply that it becomes
   Apple onscreen awareness when the editor itself cannot annotate its views.
 - Evaluate interaction donation and future general-purpose relevant-entity

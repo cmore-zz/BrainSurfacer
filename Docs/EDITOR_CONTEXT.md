@@ -59,6 +59,38 @@ should be stable and specific to the connector.
 For development and protocol inspection, `--print-url` prints the handoff URL
 without opening BrainSurfacer.
 
+The macOS application target builds the same helper implementation and embeds
+it at `BrainSurfacer.app/Contents/Helpers/brainsurfacer-context`, giving editor
+connectors a stable path in installed, renamed, and Xcode Debug app bundles.
+
+## Emacs connector
+
+The initial Emacs package is a single
+[`brainsurfacer.el`](../Connectors/Emacs/brainsurfacer.el) global minor mode. It
+uses the editing mode—not the filename extension—to accept file-visiting
+buffers derived from `org-mode` or `markdown-mode`. The selected editor window,
+other windows on visible frames, and remaining eligible buffers become the
+selected, visible, and open groups respectively.
+
+File visits, major-mode and visited-file changes, buffer closure, window/frame
+state, server visits, and focus changes schedule a complete snapshot through a
+short debounce. JSON is written directly to the helper's standard input. A TTL
+heartbeat preserves unchanged context, while disabling the mode or exiting
+Emacs clears it.
+
+By default the package scans full process command lines for a running
+`*.app/Contents/MacOS/BrainSurfacer`, derives that bundle's helper path, and
+caches positive or negative discovery for ten seconds. It does nothing while
+the app is absent. An explicit helper setting and opt-in launch-on-context mode
+cover unusual installations. See the
+[Emacs connector guide](../Connectors/Emacs/README.md) for setup, customization,
+diagnostics, tests, and current limitations.
+
+Editor context and indexing remain separate decisions. A file opened in
+`org-mode` can be reported even when its extension is not currently parsed, but
+the connector cannot enroll or index it. It remains unresolved unless the
+BrainSurfacer catalog already contains a canonical entity for that source.
+
 ## Consent and lifetime
 
 - A snapshot carries source anchors and relevance labels, never document

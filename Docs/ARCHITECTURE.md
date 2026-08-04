@@ -350,6 +350,19 @@ deduplication, ranking, expiration, and indexing policy. Openers are separate
 capabilities because a source may be indexed from the filesystem and opened in
 several applications.
 
+The first Emacs connector reports file-visiting buffers by editor semantics:
+buffers derived from Org or Markdown modes qualify independently of their file
+extension. It assigns each path its highest selected, visible, or open state,
+coalesces file/window/frame hooks, and refreshes before expiration. This does not
+grant indexing authority. An eligible buffer outside enrollment or without a
+catalogued entity remains unresolved.
+
+The macOS app embeds the connector helper under `Contents/Helpers`. Emacs finds
+the running app through its full process command, derives the helper path from
+that actual bundle, and caches discovery. This supports renamed, installed, and
+Xcode Debug bundles without a fixed `/Applications` assumption and avoids
+launching the app merely because editor state changed.
+
 ## Identity and storage
 
 Parsers attach identity evidence rather than deciding fallback identity. Org

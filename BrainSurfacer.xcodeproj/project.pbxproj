@@ -14,7 +14,34 @@
 		100000000000000000000005 /* BrainSurfacerFilesystem in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000003 /* BrainSurfacerFilesystem */; };
 		100000000000000000000006 /* BrainSurfacerApple in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000004 /* BrainSurfacerApple */; };
 		100000000000000000000007 /* SourceLibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000004 /* SourceLibraryModel.swift */; };
+		100000000000000000000008 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000006 /* main.swift */; };
+		100000000000000000000009 /* BrainSurfacerCore in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000002 /* BrainSurfacerCore */; };
+		10000000000000000000000A /* brainsurfacer-context in Embed Connector Helper */ = {isa = PBXBuildFile; fileRef = 200000000000000000000007 /* brainsurfacer-context */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D00000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 800000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 500000000000000000000002;
+			remoteInfo = "brainsurfacer-context";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		600000000000000000000002 /* Embed Connector Helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Helpers;
+			dstSubfolderSpec = 1;
+			files = (
+				10000000000000000000000A /* brainsurfacer-context in Embed Connector Helper */,
+			);
+			name = "Embed Connector Helper";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		200000000000000000000001 /* BrainSurfacerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrainSurfacerApp.swift; sourceTree = "<group>"; };
@@ -22,6 +49,8 @@
 		200000000000000000000003 /* BrainSurfacer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BrainSurfacer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		200000000000000000000004 /* SourceLibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceLibraryModel.swift; sourceTree = "<group>"; };
 		200000000000000000000005 /* BrainSurfacer.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BrainSurfacer.entitlements; sourceTree = "<group>"; };
+		200000000000000000000006 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		200000000000000000000007 /* brainsurfacer-context */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "brainsurfacer-context"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -36,6 +65,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		300000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000009 /* BrainSurfacerCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -43,6 +80,7 @@
 			isa = PBXGroup;
 			children = (
 				400000000000000000000002 /* BrainSurfacerApp */,
+				400000000000000000000004 /* BrainSurfacerContextCLI */,
 				200000000000000000000005 /* BrainSurfacer.entitlements */,
 				400000000000000000000003 /* Products */,
 			);
@@ -63,8 +101,18 @@
 			isa = PBXGroup;
 			children = (
 				200000000000000000000003 /* BrainSurfacer.app */,
+				200000000000000000000007 /* brainsurfacer-context */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		400000000000000000000004 /* BrainSurfacerContextCLI */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000006 /* main.swift */,
+			);
+			name = BrainSurfacerContextCLI;
+			path = Sources/BrainSurfacerContextCLI;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -77,10 +125,12 @@
 				700000000000000000000001 /* Sources */,
 				300000000000000000000001 /* Frameworks */,
 				600000000000000000000001 /* Resources */,
+				600000000000000000000002 /* Embed Connector Helper */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				D00000000000000000000002 /* PBXTargetDependency */,
 			);
 			name = BrainSurfacer;
 			packageProductDependencies = (
@@ -92,6 +142,25 @@
 			productName = BrainSurfacer;
 			productReference = 200000000000000000000003 /* BrainSurfacer.app */;
 			productType = "com.apple.product-type.application";
+		};
+		500000000000000000000002 /* brainsurfacer-context */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 900000000000000000000003 /* Build configuration list for PBXNativeTarget "brainsurfacer-context" */;
+			buildPhases = (
+				700000000000000000000002 /* Sources */,
+				300000000000000000000002 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "brainsurfacer-context";
+			packageProductDependencies = (
+				A00000000000000000000002 /* BrainSurfacerCore */,
+			);
+			productName = "brainsurfacer-context";
+			productReference = 200000000000000000000007 /* brainsurfacer-context */;
+			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
 
@@ -127,6 +196,7 @@
 			projectRoot = "";
 			targets = (
 				500000000000000000000001 /* BrainSurfacer */,
+				500000000000000000000002 /* brainsurfacer-context */,
 			);
 		};
 /* End PBXProject section */
@@ -152,7 +222,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		700000000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000008 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D00000000000000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 500000000000000000000002 /* brainsurfacer-context */;
+			targetProxy = D00000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		C00000000000000000000001 /* Debug */ = {
@@ -328,6 +414,36 @@
 			};
 			name = Release;
 		};
+		C00000000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -parse-as-library";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		C00000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -parse-as-library";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -345,6 +461,15 @@
 			buildConfigurations = (
 				C00000000000000000000003 /* Debug */,
 				C00000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		900000000000000000000003 /* Build configuration list for PBXNativeTarget "brainsurfacer-context" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C00000000000000000000005 /* Debug */,
+				C00000000000000000000006 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
