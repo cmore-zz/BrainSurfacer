@@ -21,7 +21,8 @@ func fileFingerprintsPersistPerSourceAndCanBeRemoved() async throws {
         ),
         secondFile: SourceFileFingerprint(
             modifiedAt: Date(timeIntervalSince1970: 200),
-            fileSize: 20
+            fileSize: 20,
+            wasExcludedByDocumentMetadata: true
         )
     ]
 
@@ -36,7 +37,7 @@ func fileFingerprintsPersistPerSourceAndCanBeRemoved() async throws {
 }
 
 @Test
-func fingerprintsWithoutIndexingModesDefaultToFullContent() throws {
+func fingerprintsWithoutIndexingMetadataUseLegacyDefaults() throws {
     let original = SourceFileFingerprint(
         modifiedAt: Date(timeIntervalSince1970: 100),
         fileSize: 10
@@ -46,6 +47,7 @@ func fingerprintsWithoutIndexingModesDefaultToFullContent() throws {
         JSONSerialization.jsonObject(with: encoded) as? [String: Any]
     )
     object.removeValue(forKey: "indexingMode")
+    object.removeValue(forKey: "wasExcludedByDocumentMetadata")
 
     let decoded = try JSONDecoder().decode(
         SourceFileFingerprint.self,
@@ -53,6 +55,7 @@ func fingerprintsWithoutIndexingModesDefaultToFullContent() throws {
     )
 
     #expect(decoded.indexingMode == .fullContent)
+    #expect(!decoded.wasExcludedByDocumentMetadata)
     #expect(decoded.modifiedAt == original.modifiedAt)
     #expect(decoded.fileSize == original.fileSize)
     #expect(decoded.parserRevision == original.parserRevision)

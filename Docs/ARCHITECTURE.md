@@ -103,6 +103,21 @@ planning lines, and Markdown front matter, contribute identity, tags, or dates
 without polluting section prose. The representative parser corpus locks these
 policies down while broader syntax coverage remains future work.
 
+A document can revoke its entire derived projection with namespaced metadata:
+`brainsurfacer-index: false` (or the underscore spelling) inside valid Markdown
+front matter, or `#+BRAINSURFACER_INDEX: false` (or the hyphen spelling) in an
+Org preamble before the first heading. The values `false`, `no`, `off`, `0`, and
+`nil` are explicit opt-outs, case-insensitively; generic `index` keys and
+directive-like body text have no effect. An opted-out file emits no document,
+section, task, catalog, or platform entities. Its resource fingerprint records
+the exclusion without content, so unchanged opted-out files need not be read on
+later scans. Removing the directive invalidates the resource fingerprint,
+reparses the file, and restores its entities. The parser-output revision was
+advanced when this contract was introduced so existing unchanged documents are
+examined for the new directive once. A valid directive is checked separately
+when later body bytes are malformed UTF-8, so explicit revocation takes
+precedence over the normal last-known-good retention policy.
+
 ### Core
 
 Filesystem reconciliation and Core coordinate one enrolled root as a logical
@@ -122,13 +137,15 @@ mutation:
    accept that replacement.
 
 The fingerprint cache is separately versioned, disposable JSON in Application
-Support. Each fingerprint includes the parser-output revision and indexing mode
-as well as file modification date and size, so parser or mode changes invalidate
-otherwise-unchanged files. This is required when restoring full content after a
-metadata-only interval. Missing, invalid, or unwritable fingerprint state causes
-reparsing rather than catalog deletion or a false indexing failure. Catalog
-recovery also reparses because an empty recovered catalog has no entities
-eligible for reuse.
+Support. Each fingerprint includes the parser-output revision, indexing mode,
+and document-metadata exclusion disposition as well as file modification date
+and size, so parser or mode changes invalidate otherwise-unchanged files. This
+is required when restoring full content after a metadata-only interval. Missing,
+invalid, or unwritable fingerprint state causes reparsing rather than catalog
+deletion or a false indexing failure. Catalog recovery also reparses because an
+empty recovered catalog has no entities eligible for reuse, except when a
+fingerprint explicitly proves that the unchanged document opted out and should
+have no catalog entities.
 
 Modification date and size avoid reading unchanged files, but they can miss an
 in-place, same-size edit made by a tool that also preserves the timestamp. This

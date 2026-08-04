@@ -5,17 +5,20 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
     public var fileSize: Int64
     public var parserRevision: Int
     public var indexingMode: SourceIndexingMode
+    public var wasExcludedByDocumentMetadata: Bool
 
     public init(
         modifiedAt: Date,
         fileSize: Int64,
         parserRevision: Int = OutlineParser.outputRevision,
-        indexingMode: SourceIndexingMode = .fullContent
+        indexingMode: SourceIndexingMode = .fullContent,
+        wasExcludedByDocumentMetadata: Bool = false
     ) {
         self.modifiedAt = modifiedAt
         self.fileSize = fileSize
         self.parserRevision = parserRevision
         self.indexingMode = indexingMode
+        self.wasExcludedByDocumentMetadata = wasExcludedByDocumentMetadata
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -23,6 +26,7 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
         case fileSize
         case parserRevision
         case indexingMode
+        case wasExcludedByDocumentMetadata
     }
 
     public init(from decoder: any Decoder) throws {
@@ -34,6 +38,10 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
             SourceIndexingMode.self,
             forKey: .indexingMode
         ) ?? .fullContent
+        wasExcludedByDocumentMetadata = try values.decodeIfPresent(
+            Bool.self,
+            forKey: .wasExcludedByDocumentMetadata
+        ) ?? false
     }
 }
 
