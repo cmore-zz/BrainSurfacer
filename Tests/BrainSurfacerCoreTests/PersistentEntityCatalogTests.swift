@@ -207,6 +207,47 @@ func incompatibleCatalogSchemaTriggersAFullProjectionRebuild() async throws {
 }
 
 @Test
+func versionOneCatalogMigratesExistingMembershipAsPermanentlyIndexed() async throws {
+    let fixture = try CatalogFixture()
+    defer { fixture.remove() }
+
+    let source = URL(fileURLWithPath: "/notes/version-one.md")
+    let entity = makePersistentEntity(id: "version-one", source: source)
+    let initialCatalog = writableCatalog(at: fixture.catalogURL)
+    try await initialCatalog.markFullRebuildCompleted()
+    _ = try await initialCatalog.replaceEntities(from: source, with: [entity])
+
+    let currentData = try Data(contentsOf: fixture.catalogURL)
+    var versionOneState = try #require(
+        JSONSerialization.jsonObject(with: currentData) as? [String: Any]
+    )
+    versionOneState["schemaVersion"] = 1
+    var sources = try #require(versionOneState["sources"] as? [[String: Any]])
+    for index in sources.indices {
+        sources[index].removeValue(forKey: "projectedIdentifiers")
+    }
+    versionOneState["sources"] = sources
+    try JSONSerialization.data(withJSONObject: versionOneState)
+        .write(to: fixture.catalogURL, options: [.atomic])
+
+    let migratedCatalog = writableCatalog(at: fixture.catalogURL)
+
+    #expect(try await migratedCatalog.requiresFullRebuild() == false)
+    #expect(
+        try await migratedCatalog.permanentlyIndexedEntities().map(\.id)
+            == [entity.id]
+    )
+    let migratedData = try Data(contentsOf: fixture.catalogURL)
+    let migratedState = try #require(
+        JSONSerialization.jsonObject(with: migratedData) as? [String: Any]
+    )
+    #expect(
+        migratedState["schemaVersion"] as? Int
+            == PersistentEntityCatalog.currentSchemaVersion
+    )
+}
+
+@Test
 func localOnlyProjectionRemovalIsJournaledAndReplayedWithoutDeletingCatalogEntities() async throws {
     let fixture = try CatalogFixture()
     defer { fixture.remove() }

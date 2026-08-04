@@ -107,13 +107,22 @@ public actor InMemoryEntityCatalog: EntityCatalog {
     }
 
     public func permanentlyIndexedEntities() async throws -> [KnowledgeEntity] {
-        let identifiers = projectedIdentifiersBySource.values.reduce(
-            into: Set<EntityID>()
-        ) {
-            $0.formUnion($1)
-        }
+        let identifiers = permanentlyIndexedIdentifiers()
         return identifiers.compactMap { entitiesByID[$0] }
             .sorted { $0.id.rawValue < $1.id.rawValue }
+    }
+
+    public func locallyOnlyEntities() async throws -> [KnowledgeEntity] {
+        let identifiers = Set(entitiesByID.keys)
+            .subtracting(permanentlyIndexedIdentifiers())
+        return identifiers.compactMap { entitiesByID[$0] }
+            .sorted { $0.id.rawValue < $1.id.rawValue }
+    }
+
+    private func permanentlyIndexedIdentifiers() -> Set<EntityID> {
+        projectedIdentifiersBySource.values.reduce(into: Set<EntityID>()) {
+            $0.formUnion($1)
+        }
     }
 
     public func resolve(_ reference: EntityReference) -> KnowledgeEntity? {

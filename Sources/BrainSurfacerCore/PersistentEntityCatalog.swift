@@ -18,6 +18,7 @@ public actor PersistentEntityCatalog: EntityCatalog {
     private var providerReferences: [ProviderReference: EntityID] = [:]
     private var pendingChanges: [PendingEntityIndexChange] = []
     private var fullRebuildRequired = false
+    private var hasLoadedState = false
 
     public init(
         storageURL: URL,
@@ -153,11 +154,20 @@ public actor PersistentEntityCatalog: EntityCatalog {
 
     public func permanentlyIndexedEntities() async throws -> [KnowledgeEntity] {
         try reload()
-        let identifiers = projectedIdentifiersBySource.values.reduce(
-            into: Set<EntityID>()
-        ) {
-            $0.formUnion($1)
+        let identifiers = permanentlyIndexedIdentifiers()
+        return identifiers.compactMap { entitiesByID[$0] }
+            .sorted { $0.id.rawValue < $1.id.rawValue }
+    }
+
+    public func locallyOnlyEntities() async throws -> [KnowledgeEntity] {
+        // The coordinating writer is the only supported catalog writer and
+        // already refreshes before every mutation. Reuse its loaded snapshot
+        // for interactive search instead of decoding the JSON file per query.
+        if accessMode == .readOnly || !hasLoadedState {
+            try reload()
         }
+        let identifiers = Set(entitiesByID.keys)
+            .subtracting(permanentlyIndexedIdentifiers())
         return identifiers.compactMap { entitiesByID[$0] }
             .sorted { $0.id.rawValue < $1.id.rawValue }
     }
@@ -276,6 +286,12 @@ public actor PersistentEntityCatalog: EntityCatalog {
             .sorted { $0.id.rawValue < $1.id.rawValue }
     }
 
+    private func permanentlyIndexedIdentifiers() -> Set<EntityID> {
+        projectedIdentifiersBySource.values.reduce(into: Set<EntityID>()) {
+            $0.formUnion($1)
+        }
+    }
+
     private func reload() throws {
         guard FileManager.default.fileExists(atPath: storageURL.path) else {
             resetInMemory(
@@ -298,11 +314,15 @@ public actor PersistentEntityCatalog: EntityCatalog {
             try handleInvalidCatalog(originalData: data)
             return
         }
-        guard state.schemaVersion == Self.currentSchemaVersion else {
+        guard (1...Self.currentSchemaVersion).contains(state.schemaVersion) else {
             try handleInvalidCatalog(originalData: data)
             return
         }
         load(state)
+        if state.schemaVersion < Self.currentSchemaVersion,
+           accessMode == .coordinatingWriter {
+            try persist()
+        }
     }
 
     private func load(_ state: PersistedState) {
@@ -333,6 +353,7 @@ public actor PersistentEntityCatalog: EntityCatalog {
         )
         pendingChanges = state.pendingChanges
         fullRebuildRequired = state.fullRebuildRequired ?? false
+        hasLoadedState = true
     }
 
     private func handleInvalidCatalog(originalData: Data?) throws {
@@ -360,6 +381,7 @@ public actor PersistentEntityCatalog: EntityCatalog {
         providerReferences = [:]
         pendingChanges = []
         self.fullRebuildRequired = fullRebuildRequired
+        hasLoadedState = true
     }
 
     private func requireCoordinatingWriter() throws {
@@ -369,43 +391,55 @@ public actor PersistentEntityCatalog: EntityCatalog {
     }
 
     private func persist() throws {
-        let state = PersistedState(
-            schemaVersion: Self.currentSchemaVersion,
-            entities: entitiesByID.values.sorted { $0.id.rawValue < $1.id.rawValue },
-            sources: identifiersBySource.map {
-                SourceRecord(
-                    url: $0.key,
-                    identifiers: $0.value.sorted { $0.rawValue < $1.rawValue },
-                    projectedIdentifiers: projectedIdentifiersBySource[
-                        $0.key,
-                        default: []
-                    ].sorted { $0.rawValue < $1.rawValue }
-                )
-            }.sorted { $0.url.path < $1.url.path },
-            providerReferences: providerReferences.map {
-                ProviderReferenceRecord(
-                    providerID: $0.key.providerID,
-                    value: $0.key.value,
-                    identifier: $0.value
-                )
-            }.sorted {
-                if $0.providerID != $1.providerID {
-                    return $0.providerID < $1.providerID
-                }
-                return $0.value < $1.value
-            },
-            pendingChanges: pendingChanges,
-            fullRebuildRequired: fullRebuildRequired
-        )
+        do {
+            let state = PersistedState(
+                schemaVersion: Self.currentSchemaVersion,
+                entities: entitiesByID.values.sorted {
+                    $0.id.rawValue < $1.id.rawValue
+                },
+                sources: identifiersBySource.map {
+                    SourceRecord(
+                        url: $0.key,
+                        identifiers: $0.value.sorted {
+                            $0.rawValue < $1.rawValue
+                        },
+                        projectedIdentifiers: projectedIdentifiersBySource[
+                            $0.key,
+                            default: []
+                        ].sorted { $0.rawValue < $1.rawValue }
+                    )
+                }.sorted { $0.url.path < $1.url.path },
+                providerReferences: providerReferences.map {
+                    ProviderReferenceRecord(
+                        providerID: $0.key.providerID,
+                        value: $0.key.value,
+                        identifier: $0.value
+                    )
+                }.sorted {
+                    if $0.providerID != $1.providerID {
+                        return $0.providerID < $1.providerID
+                    }
+                    return $0.value < $1.value
+                },
+                pendingChanges: pendingChanges,
+                fullRebuildRequired: fullRebuildRequired
+            )
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(state)
-        try FileManager.default.createDirectory(
-            at: storageURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try data.write(to: storageURL, options: [.atomic])
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let data = try encoder.encode(state)
+            try FileManager.default.createDirectory(
+                at: storageURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: storageURL, options: [.atomic])
+            hasLoadedState = true
+        } catch {
+            // Do not serve a mutated in-memory snapshot that failed to become
+            // durable. The next interactive query reloads the last good file.
+            hasLoadedState = false
+            throw error
+        }
     }
 }
 
@@ -441,6 +475,32 @@ private extension PersistentEntityCatalog {
         var url: URL
         var identifiers: [EntityID]
         var projectedIdentifiers: [EntityID]
+
+        private enum CodingKeys: String, CodingKey {
+            case url
+            case identifiers
+            case projectedIdentifiers
+        }
+
+        init(
+            url: URL,
+            identifiers: [EntityID],
+            projectedIdentifiers: [EntityID]
+        ) {
+            self.url = url
+            self.identifiers = identifiers
+            self.projectedIdentifiers = projectedIdentifiers
+        }
+
+        init(from decoder: any Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            url = try values.decode(URL.self, forKey: .url)
+            identifiers = try values.decode([EntityID].self, forKey: .identifiers)
+            projectedIdentifiers = try values.decodeIfPresent(
+                [EntityID].self,
+                forKey: .projectedIdentifiers
+            ) ?? identifiers
+        }
     }
 
     struct ProviderReferenceRecord: Codable {

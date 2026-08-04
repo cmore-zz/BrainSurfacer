@@ -20,6 +20,7 @@ func catalogSearchFindsLocalOnlyEntitiesWithoutPermanentEnrollment() async throw
         id: EntityID(rawValue: "shared"),
         kind: .note,
         title: "Public launch plan",
+        body: "Local-only canary details",
         source: SourceAnchor(fileURL: publicSource)
     )
     _ = try await catalog.replaceEntities(
@@ -37,6 +38,28 @@ func catalogSearchFindsLocalOnlyEntitiesWithoutPermanentEnrollment() async throw
     #expect(results.map(\.entityID) == [local.id])
     #expect(results.first?.sourceURL == localSource)
     #expect(try await catalog.permanentlyIndexedEntities().map(\.id) == [shared.id])
+}
+
+@Test
+func mergedSearchInterleavesFullResultSetsWithoutChangingBackendRanking() async throws {
+    let spotlight = StubEntitySearch(results: [
+        EntitySearchResult(id: "spotlight:one", title: "Spotlight one"),
+        EntitySearchResult(id: "spotlight:two", title: "Spotlight two"),
+        EntitySearchResult(id: "spotlight:three", title: "Spotlight three")
+    ])
+    let local = StubEntitySearch(results: [
+        EntitySearchResult(id: "local:one", title: "Local one"),
+        EntitySearchResult(id: "local:two", title: "Local two")
+    ])
+
+    let results = try await MergedEntitySearch(
+        searches: [spotlight, local]
+    ).search("plan", limit: 3)
+
+    #expect(
+        results.map(\.id)
+            == ["spotlight:one", "local:one", "spotlight:two"]
+    )
 }
 
 @Test

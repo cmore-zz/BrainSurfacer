@@ -27,7 +27,7 @@ public protocol EntitySearch: Sendable {
     func search(_ text: String, limit: Int) async throws -> [EntitySearchResult]
 }
 
-/// Searches the durable local catalog independently of platform enrollment.
+/// Searches entities kept exclusively in the local catalog.
 public struct CatalogEntitySearch: EntitySearch {
     private let catalog: any EntityCatalog
 
@@ -44,7 +44,7 @@ public struct CatalogEntitySearch: EntitySearch {
             return []
         }
         let tokens = query.split(whereSeparator: \.isWhitespace).map(String.init)
-        return try await catalog.allEntities().compactMap { entity in
+        return try await catalog.locallyOnlyEntities().compactMap { entity in
             Self.match(entity, query: query, tokens: tokens)
         }
         .sorted {
@@ -125,25 +125,13 @@ public struct MergedEntitySearch: EntitySearch {
         guard limit > 0 else {
             return []
         }
-        var merged: [EntitySearchResult] = []
-        var seen: Set<String> = []
+        var resultSets: [[EntitySearchResult]] = []
         var firstError: (any Error)?
-        var successfulSearchCount = 0
 
         for search in searches {
             do {
                 let results = try await search.search(text, limit: limit)
-                successfulSearchCount += 1
-                for result in results {
-                    let identity = result.entityID?.rawValue ?? result.id
-                    guard seen.insert(identity).inserted else {
-                        continue
-                    }
-                    merged.append(result)
-                    if merged.count == limit {
-                        return merged
-                    }
-                }
+                resultSets.append(results)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -153,8 +141,37 @@ public struct MergedEntitySearch: EntitySearch {
             }
         }
 
-        if successfulSearchCount == 0, let firstError {
+        if resultSets.isEmpty, let firstError {
             throw firstError
+        }
+
+        // Results from different ranking systems have no comparable score.
+        // Preserve each backend's order and interleave them so neither a full
+        // Spotlight page nor a full local-only page starves the other.
+        var merged: [EntitySearchResult] = []
+        var seen: Set<String> = []
+        var offsets = Array(repeating: 0, count: resultSets.count)
+        while merged.count < limit {
+            var appendedResult = false
+            for index in resultSets.indices {
+                while offsets[index] < resultSets[index].count {
+                    let result = resultSets[index][offsets[index]]
+                    offsets[index] += 1
+                    let identity = result.entityID?.rawValue ?? result.id
+                    guard seen.insert(identity).inserted else {
+                        continue
+                    }
+                    merged.append(result)
+                    appendedResult = true
+                    break
+                }
+                if merged.count == limit {
+                    break
+                }
+            }
+            if !appendedResult {
+                break
+            }
         }
         return merged
     }

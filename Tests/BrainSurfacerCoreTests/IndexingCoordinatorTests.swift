@@ -159,6 +159,18 @@ private actor DefaultMembershipCatalog: EntityCatalog {
         return EntityIndexChange(upserts: entities, removals: [])
     }
 
+    func replaceEntities(
+        from source: URL,
+        with entities: [KnowledgeEntity],
+        includeInPermanentIndex: Bool
+    ) -> EntityIndexChange {
+        storedEntities = entities
+        return EntityIndexChange(
+            upserts: includeInPermanentIndex ? entities : [],
+            removals: []
+        )
+    }
+
     func entities(identifiedBy identifiers: [EntityID]) -> [KnowledgeEntity] {
         let identifiers = Set(identifiers)
         return storedEntities.filter { identifiers.contains($0.id) }
@@ -166,6 +178,14 @@ private actor DefaultMembershipCatalog: EntityCatalog {
 
     func allEntities() -> [KnowledgeEntity] {
         storedEntities
+    }
+
+    func permanentlyIndexedEntities() -> [KnowledgeEntity] {
+        storedEntities
+    }
+
+    func locallyOnlyEntities() -> [KnowledgeEntity] {
+        []
     }
 
     func resolve(_ reference: EntityReference) -> KnowledgeEntity? {

@@ -209,6 +209,10 @@ obsolete by the reset and successful all-source projection.
 Permanent-index adapters that do not implement full reset support fail recovery
 explicitly instead of silently accepting a no-op reset.
 
+Catalog schema 2 added explicit platform-projection membership. Schema 1
+records migrate in place by treating their local membership as permanently
+enrolled, which matches the only behavior available before discovery scopes.
+
 The app process owns the catalog's explicit coordinating-writer instance. App
 Entity queries use read-only instances: an invalid catalog produces an empty
 in-memory snapshot without changing the shared file, leaving quarantine and
@@ -261,13 +265,16 @@ requests from only the permanently enrolled subset of the shared durable
 catalog. This prevents a later system reindex request from re-donating a
 local-only source.
 
-In-app search goes back through the `EntitySearch` port. It merges deterministic
-local catalog search with the Apple adapter's `CSUserQuery` results, prefers the
-local result for duplicate canonical identifiers, and remains usable if one
-backend fails. `CSUserQuery` supplies ranked lexical and semantic matches from
-the BrainSurfacer App Entity domains, while local catalog search keeps
-`localOnly` sources discoverable without donating them to Apple. Core and the UI
-do not construct Spotlight predicates.
+In-app search goes back through the `EntitySearch` port. `CSUserQuery` supplies
+ranked lexical and semantic matches from the BrainSurfacer App Entity domains;
+catalog search considers only `localOnly` entities. The merger preserves each
+backend's ordering, interleaves their result sets before applying the shared
+limit, deduplicates canonical identifiers, and remains usable if one backend
+fails. Thus the historical all-Apple configuration retains Spotlight ranking,
+while local-only sources remain discoverable without being donated to Apple.
+The coordinating writer reuses its loaded catalog snapshot for this interactive
+query path instead of decoding the JSON catalog after every debounce. Core and
+the UI do not construct Spotlight predicates.
 
 Every persistent projection carries a `brainsurfacer://` content URL containing
 its canonical entity identifier; the original source path remains separate

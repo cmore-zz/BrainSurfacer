@@ -64,8 +64,8 @@ final class SourceLibraryModel {
         )
         self.entitySearch = entitySearch ?? MergedEntitySearch(
             searches: [
-                CatalogEntitySearch(catalog: catalog),
-                SpotlightEntitySearch()
+                SpotlightEntitySearch(),
+                CatalogEntitySearch(catalog: catalog)
             ]
         )
         let coordinator = IndexingCoordinator(
