@@ -150,6 +150,79 @@ func unresolvedContextIsRetainedUntilItExpires() async throws {
     #expect(expired == CurrentContext(resolved: [], unresolved: []))
 }
 
+@Test
+func contextProviderCountIsBoundedByEvictingTheOldestSnapshot() async throws {
+    let now = Date(timeIntervalSince1970: 4_000)
+    let catalog = InMemoryEntityCatalog()
+    let coordinator = ContextCoordinator(catalog: catalog)
+
+    for index in 0...ContextCoordinator.maximumProviderCount {
+        let observedAt = now.addingTimeInterval(TimeInterval(index))
+        await coordinator.ingest(
+            ContextSnapshot(
+                providerID: "provider-\(index)",
+                observedAt: observedAt,
+                contributions: [
+                    ContextContribution(
+                        reference: .providerLocal(
+                            providerID: "provider-\(index)",
+                            value: "unresolved"
+                        ),
+                        relevance: .open,
+                        expiresAt: observedAt.addingTimeInterval(300)
+                    )
+                ]
+            )
+        )
+    }
+
+    let context = try await coordinator.currentContext(
+        at: now.addingTimeInterval(TimeInterval(ContextCoordinator.maximumProviderCount))
+    )
+    let providerIDs = Set(context.unresolved.map(\.providerID))
+
+    #expect(providerIDs.count == ContextCoordinator.maximumProviderCount)
+    #expect(!providerIDs.contains("provider-0"))
+    #expect(providerIDs.contains("provider-\(ContextCoordinator.maximumProviderCount)"))
+}
+
+@Test
+func currentContextReportsItsNextExpiration() {
+    let first = Date(timeIntervalSince1970: 10)
+    let second = Date(timeIntervalSince1970: 20)
+    let context = CurrentContext(
+        resolved: [],
+        unresolved: [
+            UnresolvedContextContribution(
+                providerID: "provider",
+                observedAt: first,
+                contribution: ContextContribution(
+                    reference: .providerLocal(
+                        providerID: "provider",
+                        value: "later"
+                    ),
+                    relevance: .open,
+                    expiresAt: second
+                )
+            ),
+            UnresolvedContextContribution(
+                providerID: "provider",
+                observedAt: first,
+                contribution: ContextContribution(
+                    reference: .providerLocal(
+                        providerID: "provider",
+                        value: "first"
+                    ),
+                    relevance: .visible,
+                    expiresAt: first
+                )
+            )
+        ]
+    )
+
+    #expect(context.nextExpiration == first)
+}
+
 private func makeEntity(
     id: String,
     kind: KnowledgeEntity.Kind,

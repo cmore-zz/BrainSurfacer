@@ -2,6 +2,8 @@ import BrainSurfacerModel
 import Foundation
 
 public actor ContextCoordinator {
+    public static let maximumProviderCount = 16
+
     public enum Error: Swift.Error, Equatable {
         case providerIdentityMismatch(expected: String, received: String)
     }
@@ -30,6 +32,22 @@ public actor ContextCoordinator {
     }
 
     public func ingest(_ snapshot: ContextSnapshot) {
+        guard !snapshot.contributions.isEmpty else {
+            snapshotsByProvider.removeValue(forKey: snapshot.providerID)
+            return
+        }
+
+        pruneExpiredContributions(at: snapshot.observedAt)
+        if snapshotsByProvider[snapshot.providerID] == nil,
+           snapshotsByProvider.count >= Self.maximumProviderCount,
+           let oldestProviderID = snapshotsByProvider.min(by: {
+               if $0.value.observedAt != $1.value.observedAt {
+                   return $0.value.observedAt < $1.value.observedAt
+               }
+               return $0.key < $1.key
+           })?.key {
+            snapshotsByProvider.removeValue(forKey: oldestProviderID)
+        }
         snapshotsByProvider[snapshot.providerID] = snapshot
     }
 

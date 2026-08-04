@@ -106,3 +106,70 @@ func editorContextRejectsNonFileURLsAndExcessiveLifetimes() {
         )
     }
 }
+
+@Test
+func editorContextJSONInputGroupsLargeWorkingSetsAndResolvesRelativePaths() throws {
+    let openDocuments = (0..<60).map { "notes/note-\($0).md" }
+    let input = EditorContextInput(
+        providerID: "org.gnu.Emacs",
+        timeToLive: 120,
+        selected: ["selected.org"],
+        visible: ["visible.md"],
+        open: openDocuments
+    )
+    let data = try JSONEncoder().encode(input)
+    let decoded = try JSONDecoder().decode(EditorContextInput.self, from: data)
+    let observedAt = Date(timeIntervalSince1970: 30_000)
+    let update = try decoded.update(
+        relativeTo: URL(fileURLWithPath: "/Users/test/context", isDirectory: true),
+        observedAt: observedAt
+    )
+
+    #expect(update.providerID == "org.gnu.Emacs")
+    #expect(update.observedAt == observedAt)
+    #expect(update.timeToLive == 120)
+    #expect(update.documents.count == 62)
+    #expect(update.documents[0].relevance == .selected)
+    #expect(update.documents[0].anchor.fileURL.path == "/Users/test/context/selected.org")
+    #expect(update.documents[1].relevance == .visible)
+    #expect(update.documents[2].relevance == .open)
+    #expect(
+        update.documents.last?.anchor.fileURL.path
+            == "/Users/test/context/notes/note-59.md"
+    )
+}
+
+@Test
+func editorContextJSONInputDefaultsOptionalGroupsAndLifetime() throws {
+    let data = Data(#"{"providerID":"md.obsidian","open":["Plan.md"]}"#.utf8)
+    let input = try EditorContextInput.decodeJSON(data)
+    let update = try input.update(
+        relativeTo: URL(fileURLWithPath: "/notes", isDirectory: true)
+    )
+
+    #expect(input.selected.isEmpty)
+    #expect(input.visible.isEmpty)
+    #expect(update.timeToLive == EditorContextUpdate.defaultTimeToLive)
+    #expect(update.documents.map(\.relevance) == [.open])
+}
+
+@Test
+func editorContextJSONInputRejectsEmptyPathsAndOversizedFiles() throws {
+    let input = EditorContextInput(
+        providerID: "test.provider",
+        visible: [""]
+    )
+    #expect(throws: EditorContextInput.Error.emptyPath) {
+        try input.update(
+            relativeTo: URL(fileURLWithPath: "/notes", isDirectory: true)
+        )
+    }
+
+    let oversized = Data(
+        repeating: 0x20,
+        count: EditorContextInput.maximumJSONBytes + 1
+    )
+    #expect(throws: EditorContextInput.Error.payloadTooLarge) {
+        try EditorContextInput.decodeJSON(oversized)
+    }
+}

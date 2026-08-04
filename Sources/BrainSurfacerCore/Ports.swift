@@ -252,6 +252,16 @@ public struct CurrentContext: Equatable, Sendable {
         self.resolved = resolved
         self.unresolved = unresolved
     }
+
+    public var nextExpiration: Date? {
+        let resolvedExpirations = resolved.flatMap { item in
+            item.signals.map(\.expiresAt)
+        }
+        let unresolvedExpirations = unresolved.map {
+            $0.contribution.expiresAt
+        }
+        return (resolvedExpirations + unresolvedExpirations).min()
+    }
 }
 
 public protocol ContextRankingPolicy: Sendable {

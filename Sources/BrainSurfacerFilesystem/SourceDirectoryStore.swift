@@ -86,13 +86,14 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
     /// Context transports use this as their consent boundary before accepting
     /// editor-observed document paths.
     public func enrolledDocumentURLs(in candidates: [URL]) -> Set<URL> {
-        let roots = load().map(\.url)
+        let roots = load().map { $0.url.resolvingSymlinksInPath() }
         return Set(candidates.compactMap { candidate in
-            let candidate = candidate.standardizedFileURL
-            guard Self.enclosingRoot(for: candidate, among: roots) != nil else {
+            let standardizedCandidate = candidate.standardizedFileURL
+            let resolvedCandidate = standardizedCandidate.resolvingSymlinksInPath()
+            guard Self.enclosingRoot(for: resolvedCandidate, among: roots) != nil else {
                 return nil
             }
-            return candidate
+            return standardizedCandidate
         })
     }
 

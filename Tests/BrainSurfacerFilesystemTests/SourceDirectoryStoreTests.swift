@@ -114,6 +114,52 @@ func editorContextCandidatesAreLimitedToEnrolledSourceTrees() async throws {
 }
 
 @Test
+func editorContextEnrollmentRejectsSymlinksEscapingTheSourceTree() async throws {
+    let suiteName = "BrainSurfacerTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    let parent = FileManager.default.temporaryDirectory.appending(
+        path: "BrainSurfacerContextSymlink-\(UUID().uuidString)",
+        directoryHint: .isDirectory
+    )
+    let enrolledDirectory = parent.appending(path: "Enrolled", directoryHint: .isDirectory)
+    let outsideDirectory = parent.appending(path: "Outside", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: enrolledDirectory,
+        withIntermediateDirectories: true
+    )
+    try FileManager.default.createDirectory(
+        at: outsideDirectory,
+        withIntermediateDirectories: true
+    )
+    let outsideDocument = outsideDirectory.appending(path: "Secret.org")
+    try Data("secret".utf8).write(to: outsideDocument)
+    defer {
+        try? FileManager.default.removeItem(at: parent)
+    }
+
+    let link = enrolledDirectory.appending(path: "escaped", directoryHint: .isDirectory)
+    try FileManager.default.createSymbolicLink(
+        at: link,
+        withDestinationURL: outsideDirectory
+    )
+    let store = SourceDirectoryStore(
+        suiteName: suiteName,
+        storageKey: "testContextSymlinkEnrollment"
+    )
+    _ = try await store.add([enrolledDirectory])
+
+    let accepted = await store.enrolledDocumentURLs(
+        in: [link.appending(path: "Secret.org")]
+    )
+
+    #expect(accepted.isEmpty)
+}
+
+@Test
 func sourceConfigurationsPersistWithEnrollmentAndAreRemovedWithIt() async throws {
     let suiteName = "BrainSurfacerTests.\(UUID().uuidString)"
     let storageKey = "testSourcePolicyEnrollments"

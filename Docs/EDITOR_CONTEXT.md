@@ -27,6 +27,30 @@ document flags clears its current snapshot:
 swift run brainsurfacer-context --provider org.gnu.Emacs
 ```
 
+For larger working sets, pass one JSON file instead of placing every path on the
+command line:
+
+```json
+{
+  "providerID": "org.gnu.Emacs",
+  "timeToLive": 60,
+  "selected": ["notes/plan.org"],
+  "visible": ["notes/plan.org", "notes/research.md"],
+  "open": ["notes/plan.org", "notes/research.md", "notes/reference.org"]
+}
+```
+
+```sh
+swift run brainsurfacer-context --input /path/to/context.json
+```
+
+The three path arrays are optional, and relative paths resolve against the
+directory containing the JSON file. `--input -` reads the same bounded JSON from
+standard input and resolves relative paths against the current working
+directory, avoiding a temporary file. Input is bounded to 64 KiB in both modes.
+JSON input cannot be combined with `--provider`, `--ttl`, or the individual
+document flags. `--print-url` remains available in either mode.
+
 This is a replacement protocol, not an event log. A connector should resend
 the complete current snapshot after its visible buffers, tabs, or selection
 changes and periodically while that state remains current. Provider identifiers
@@ -55,6 +79,15 @@ enrollment check, strict size and lifetime limits, and absence of commands or
 content keep its authority narrow. A packaged connector should eventually use
 an authenticated streaming IPC transport; the versioned snapshot model can
 remain the payload contract.
+
+The interim transport treats provider identifiers and relevance claims as
+unverified connector input. A local process can temporarily populate Live
+Context and influence the order of already-matching in-app results, but cannot
+add search results, enroll or open arbitrary paths, or change permanent
+indexing. BrainSurfacer caps active providers at 16 and evicts the oldest when
+that limit is reached. These controls primarily bound malformed or noisy
+connectors; the design does not claim to contain hostile code already executing
+as the logged-in user.
 
 ## Apple API boundary
 

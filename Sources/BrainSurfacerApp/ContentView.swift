@@ -199,14 +199,19 @@ private struct LiveContextView: View {
             }
         }
         .navigationTitle("Live Context")
-        .task {
-            while !Task.isCancelled {
-                try? await model.refreshCurrentContext()
-                do {
-                    try await Task.sleep(for: .seconds(1))
-                } catch {
-                    return
-                }
+        .task(id: model.currentContext.nextExpiration) {
+            guard let expiration = model.currentContext.nextExpiration else {
+                return
+            }
+            let delay = max(0, expiration.timeIntervalSinceNow)
+            do {
+                try await Task.sleep(for: .seconds(delay))
+                try await model.refreshCurrentContext()
+            } catch is CancellationError {
+                return
+            } catch {
+                model.errorMessage = "BrainSurfacer couldn’t refresh live context: "
+                    + error.localizedDescription
             }
         }
     }
