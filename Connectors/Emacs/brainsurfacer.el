@@ -26,6 +26,7 @@
 
 (require 'cl-lib)
 (require 'json)
+(require 'nadvice)
 (require 'seq)
 (require 'subr-x)
 
@@ -91,6 +92,8 @@ file-visiting buffer that BrainSurfacer should consider."
 
 (defconst brainsurfacer--maximum-documents 100)
 (defconst brainsurfacer--maximum-path-bytes 16384)
+(defconst brainsurfacer--minimum-time-to-live 1)
+(defconst brainsurfacer--maximum-time-to-live 300)
 
 (defvar brainsurfacer--debounce-timer nil)
 (defvar brainsurfacer--heartbeat-timer nil)
@@ -122,8 +125,10 @@ Mode semantics, rather than filename extensions, determine eligibility.
 Indirect buffers inherit the visited filename of their base buffer."
   (and (buffer-live-p buffer)
        (with-current-buffer buffer
-         (let ((base (or (buffer-base-buffer) buffer)))
-           (and (buffer-file-name base)
+         (let* ((base (or (buffer-base-buffer) buffer))
+                (path (buffer-file-name base)))
+           (and path
+                (not (file-remote-p path))
                 (or (derived-mode-p 'org-mode)
                     (derived-mode-p 'markdown-mode)))))))
 
@@ -134,7 +139,7 @@ Indirect buffers inherit the visited filename of their base buffer."
     (with-current-buffer buffer
       (let* ((base (or (buffer-base-buffer) buffer))
              (path (buffer-file-name base)))
-        (when path
+        (when (and path (not (file-remote-p path)))
           (expand-file-name path))))))
 
 (defun brainsurfacer--selected-editor-window ()
@@ -205,11 +210,19 @@ document-count and decoded-path-byte limits enforced by the helper."
      (sort (delete-dups visible-paths) #'string<)
      (sort (delete-dups open-paths) #'string<))))
 
+(defun brainsurfacer--normalized-time-to-live ()
+  "Return the configured TTL constrained to BrainSurfacer's wire limits."
+  (let ((value (if (numberp brainsurfacer-time-to-live)
+                   brainsurfacer-time-to-live
+                 60)))
+    (max brainsurfacer--minimum-time-to-live
+         (min brainsurfacer--maximum-time-to-live value))))
+
 (defun brainsurfacer--payload (snapshot)
   "Encode SNAPSHOT as connector-friendly JSON."
   (json-serialize
    `((providerID . ,brainsurfacer-provider-id)
-     (timeToLive . ,brainsurfacer-time-to-live)
+     (timeToLive . ,(brainsurfacer--normalized-time-to-live))
      (selected . ,(vconcat (plist-get snapshot :selected)))
      (visible . ,(vconcat (plist-get snapshot :visible)))
      (open . ,(vconcat (plist-get snapshot :open))))))
@@ -218,21 +231,39 @@ document-count and decoded-path-byte limits enforced by the helper."
   "Return the JSON snapshot that clears this provider."
   (brainsurfacer--payload '(:selected nil :visible nil :open nil)))
 
-(defun brainsurfacer--application-bundles-from-process-lines (lines)
-  "Extract running BrainSurfacer application bundles from ps LINES."
+(defun brainsurfacer--running-applications-from-process-lines (lines)
+  "Extract BrainSurfacer process IDs and application bundles from ps LINES."
   (let ((regexp
-         "\\`\\(.+\\.app\\)/Contents/MacOS/BrainSurfacer\\(?:[[:space:]].*\\)?\\'")
-        bundles)
+         (concat
+          "\\`[[:space:]]*\\([0-9]+\\)[[:space:]]+"
+          "\\(.+\\.app\\)/Contents/MacOS/BrainSurfacer"
+          "\\(?:[[:space:]].*\\)?\\'"))
+        applications)
     (dolist (line lines)
       (when (string-match regexp line)
-        (push (match-string 1 line) bundles)))
-    (delete-dups (nreverse bundles))))
+        (let ((application
+               (list :pid (string-to-number (match-string 1 line))
+                     :bundle (match-string 2 line))))
+          (unless (seq-find
+                   (lambda (existing)
+                     (equal (plist-get existing :bundle)
+                            (plist-get application :bundle)))
+                   applications)
+            (push application applications)))))
+    (nreverse applications)))
 
 (defun brainsurfacer--process-lines ()
   "Return full command lines for the local process table."
   (condition-case nil
-      (process-lines "/bin/ps" "-ww" "-axo" "command=")
+      (process-lines "/bin/ps" "-ww" "-axo" "pid=,command=")
     (error nil)))
+
+(defun brainsurfacer--process-id-live-p (process-id)
+  "Return non-nil when local PROCESS-ID still exists."
+  (and (integerp process-id)
+       (condition-case nil
+           (and (process-attributes process-id) t)
+         (error nil))))
 
 (defun brainsurfacer--resolve-command (command)
   "Resolve COMMAND to an executable path, or nil."
@@ -256,22 +287,38 @@ document-count and decoded-path-byte limits enforced by the helper."
     (if (and (not force)
              checked-at
              (< (- now checked-at) brainsurfacer-discovery-cooldown))
-        (plist-get brainsurfacer--discovery-cache :command)
-      (let* ((running-bundles
-              (brainsurfacer--application-bundles-from-process-lines
+        (if (and brainsurfacer-require-running-app
+                 (plist-get brainsurfacer--discovery-cache :running)
+                 (not (brainsurfacer--process-id-live-p
+                       (plist-get brainsurfacer--discovery-cache :pid))))
+            (brainsurfacer--discover-helper t)
+          (plist-get brainsurfacer--discovery-cache :command))
+      (let* ((running-applications
+              (brainsurfacer--running-applications-from-process-lines
                (brainsurfacer--process-lines)))
-             (running (and running-bundles t))
-             (candidate-bundles
+             (running (and running-applications t))
+             (candidate-applications
               (if (or running brainsurfacer-require-running-app)
-                  running-bundles
-                (append running-bundles
-                        (mapcar #'expand-file-name
-                                brainsurfacer-application-paths))))
+                  running-applications
+                (append
+                 running-applications
+                 (mapcar
+                  (lambda (bundle)
+                    (list :bundle (expand-file-name bundle)))
+                  brainsurfacer-application-paths))))
              (configured
               (when (or running (not brainsurfacer-require-running-app))
                 (brainsurfacer--resolve-command brainsurfacer-command)))
-             (bundled
-              (seq-some #'brainsurfacer--helper-in-bundle candidate-bundles))
+             (bundled-match
+              (unless brainsurfacer-command
+                (seq-some
+                 (lambda (application)
+                   (when-let* ((helper
+                                (brainsurfacer--helper-in-bundle
+                                 (plist-get application :bundle))))
+                     (cons helper application)))
+                 candidate-applications)))
+             (bundled (car-safe bundled-match))
              (path-helper
               (when (and (or running (not brainsurfacer-require-running-app))
                          (not brainsurfacer-command))
@@ -279,11 +326,16 @@ document-count and decoded-path-byte limits enforced by the helper."
              (command
               (if brainsurfacer-command
                   configured
-                (or bundled path-helper))))
+                (or bundled path-helper)))
+             (selected-application
+              (if bundled
+                  (cdr bundled-match)
+                (car running-applications))))
         (setq brainsurfacer--discovery-cache
               (list :checked-at now
                     :running running
-                    :application (car running-bundles)
+                    :pid (plist-get selected-application :pid)
+                    :application (plist-get selected-application :bundle)
                     :command command))
         command))))
 
@@ -305,7 +357,8 @@ document-count and decoded-path-byte limits enforced by the helper."
                        (with-current-buffer buffer (buffer-string)))
                     (format "Helper exited with status %s"
                             (process-exit-status process)))
-                  brainsurfacer--last-payload nil))
+                  brainsurfacer--last-payload nil
+                  brainsurfacer--discovery-cache nil))
         (when (buffer-live-p buffer)
           (kill-buffer buffer))))))
 
@@ -339,7 +392,8 @@ was invoked."
           t)
       (error
        (setq brainsurfacer--last-error (error-message-string error-data)
-             brainsurfacer--last-payload nil)
+             brainsurfacer--last-payload nil
+             brainsurfacer--discovery-cache nil)
        nil))))
 
 (defun brainsurfacer--send-snapshot (&optional force)
@@ -387,24 +441,24 @@ was invoked."
   (dolist (hook brainsurfacer--state-hooks)
     (when (boundp hook)
       (add-hook hook #'brainsurfacer--handle-state-change)))
-  (dolist (hook '(focus-in-hook focus-out-hook))
-    (when (boundp hook)
-      (add-hook hook #'brainsurfacer--handle-focus-change))))
+  (add-function :after after-focus-change-function
+                #'brainsurfacer--handle-focus-change))
 
 (defun brainsurfacer--remove-hooks ()
   "Remove installed state hooks."
   (dolist (hook brainsurfacer--state-hooks)
     (when (boundp hook)
       (remove-hook hook #'brainsurfacer--handle-state-change)))
-  (dolist (hook '(focus-in-hook focus-out-hook))
-    (when (boundp hook)
-      (remove-hook hook #'brainsurfacer--handle-focus-change))))
+  (remove-function after-focus-change-function
+                   #'brainsurfacer--handle-focus-change))
 
 (defun brainsurfacer--start-heartbeat ()
   "Start the TTL refresh timer."
   (when (timerp brainsurfacer--heartbeat-timer)
     (cancel-timer brainsurfacer--heartbeat-timer))
-  (let ((interval (max 1.0 (/ (float brainsurfacer-time-to-live) 2.0))))
+  (let ((interval
+         (max 1.0
+              (/ (float (brainsurfacer--normalized-time-to-live)) 2.0))))
     (setq brainsurfacer--heartbeat-timer
           (run-at-time interval interval #'brainsurfacer--heartbeat))))
 

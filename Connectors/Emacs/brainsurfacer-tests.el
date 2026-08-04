@@ -30,6 +30,14 @@
     (fundamental-mode)
     (should-not (brainsurfacer-org-or-markdown-buffer-p (current-buffer)))))
 
+(ert-deftest brainsurfacer-buffer-path-omits-remote-files ()
+  (with-temp-buffer
+    (org-mode)
+    (setq buffer-file-name "/ssh:example.test:/notes/remote.org")
+    (should-not
+     (brainsurfacer-org-or-markdown-buffer-p (current-buffer)))
+    (should-not (brainsurfacer--buffer-path (current-buffer)))))
+
 (ert-deftest brainsurfacer-snapshot-classifies-selected-visible-and-open ()
   (let* ((selected-buffer
           (brainsurfacer-test-make-buffer
@@ -101,16 +109,27 @@
     (should (equal (alist-get 'open decoded)
                    '("/notes/open.org")))))
 
+(ert-deftest brainsurfacer-time-to-live-is-normalized ()
+  (dolist (case '((-20 1) (60 60) (600 300)))
+    (let* ((brainsurfacer-time-to-live (car case))
+           (payload
+            (brainsurfacer--payload
+             '(:selected nil :visible nil :open nil)))
+           (decoded (json-parse-string payload :object-type 'alist)))
+      (should (= (alist-get 'timeToLive decoded) (cadr case)))
+      (should (= (brainsurfacer--normalized-time-to-live) (cadr case))))))
+
 (ert-deftest brainsurfacer-finds-running-app-bundles-with-spaces ()
   (should
    (equal
-    (brainsurfacer--application-bundles-from-process-lines
+    (brainsurfacer--running-applications-from-process-lines
      (list
-      "/Applications/Other.app/Contents/MacOS/Other"
+      "  100 /Applications/Other.app/Contents/MacOS/Other"
       (concat
-       "/Users/test/Build Products/BrainSurfacer Debug.app/Contents/MacOS/"
+       "  4242 /Users/test/Build Products/BrainSurfacer Debug.app/Contents/MacOS/"
        "BrainSurfacer -NSDocumentRevisionsDebugMode YES")))
-    '("/Users/test/Build Products/BrainSurfacer Debug.app"))))
+    '((:pid 4242
+       :bundle "/Users/test/Build Products/BrainSurfacer Debug.app")))))
 
 (ert-deftest brainsurfacer-process-discovery-is-cached ()
   (let* ((temporary-root (make-temp-file "brainsurfacer app " t))
@@ -119,7 +138,7 @@
           (expand-file-name
            "Contents/Helpers/brainsurfacer-context" bundle))
          (command
-          (concat bundle "/Contents/MacOS/BrainSurfacer"))
+          (concat "  4242 " bundle "/Contents/MacOS/BrainSurfacer"))
          (brainsurfacer-command nil)
          (brainsurfacer-require-running-app t)
          (brainsurfacer-discovery-cooldown 10)
@@ -133,10 +152,41 @@
           (cl-letf (((symbol-function 'brainsurfacer--process-lines)
                      (lambda ()
                        (setq calls (1+ calls))
-                       (list command))))
+                       (list command)))
+                    ((symbol-function 'brainsurfacer--process-id-live-p)
+                     (lambda (_process-id) t)))
             (should (equal (brainsurfacer--discover-helper) helper))
             (should (equal (brainsurfacer--discover-helper) helper))
             (should (= calls 1))))
+      (delete-directory temporary-root t))))
+
+(ert-deftest brainsurfacer-stale-running-process-invalidates-cache ()
+  (let* ((temporary-root (make-temp-file "brainsurfacer app " t))
+         (bundle (expand-file-name "BrainSurfacer.app" temporary-root))
+         (helper
+          (expand-file-name
+           "Contents/Helpers/brainsurfacer-context" bundle))
+         (command
+          (concat "  4242 " bundle "/Contents/MacOS/BrainSurfacer"))
+         (brainsurfacer-command nil)
+         (brainsurfacer-require-running-app t)
+         (brainsurfacer-discovery-cooldown 10)
+         (brainsurfacer--discovery-cache nil)
+         (calls 0))
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory helper) t)
+          (write-region "" nil helper nil 'silent)
+          (set-file-modes helper #o755)
+          (cl-letf (((symbol-function 'brainsurfacer--process-lines)
+                     (lambda ()
+                       (setq calls (1+ calls))
+                       (when (= calls 1) (list command))))
+                    ((symbol-function 'brainsurfacer--process-id-live-p)
+                     (lambda (_process-id) nil)))
+            (should (equal (brainsurfacer--discover-helper) helper))
+            (should-not (brainsurfacer--discover-helper))
+            (should (= calls 2))))
       (delete-directory temporary-root t))))
 
 (ert-deftest brainsurfacer-negative-process-discovery-is-cached ()
@@ -155,21 +205,32 @@
 
 (ert-deftest brainsurfacer-mode-installs-file-window-and-focus-hooks ()
   (brainsurfacer-mode -1)
-  (cl-letf (((symbol-function 'brainsurfacer--schedule) #'ignore)
-            ((symbol-function 'brainsurfacer--start-heartbeat) #'ignore)
-            ((symbol-function 'brainsurfacer--send-payload) #'ignore))
-    (unwind-protect
-        (progn
-          (brainsurfacer-mode 1)
-          (should (memq #'brainsurfacer--handle-state-change find-file-hook))
-          (when (boundp 'window-buffer-change-functions)
-            (should
-             (memq #'brainsurfacer--handle-state-change
-                   window-buffer-change-functions)))
-          (should (memq #'brainsurfacer--handle-focus-change focus-in-hook)))
-      (brainsurfacer-mode -1)))
+  (let ((after-focus-change-function #'ignore)
+        (focus-schedules 0))
+    (cl-letf (((symbol-function 'brainsurfacer--schedule)
+               (lambda (&optional _force)
+                 (setq focus-schedules (1+ focus-schedules))))
+              ((symbol-function 'brainsurfacer--start-heartbeat) #'ignore)
+              ((symbol-function 'brainsurfacer--send-payload) #'ignore))
+      (unwind-protect
+          (progn
+            (brainsurfacer-mode 1)
+            (should (memq #'brainsurfacer--handle-state-change find-file-hook))
+            (when (boundp 'window-buffer-change-functions)
+              (should
+               (memq #'brainsurfacer--handle-state-change
+                     window-buffer-change-functions)))
+            (setq focus-schedules 0)
+            (funcall after-focus-change-function)
+            (should (= focus-schedules 1)))
+        (brainsurfacer-mode -1)))
+    (setq focus-schedules 0)
+    (funcall after-focus-change-function)
+    (should (= focus-schedules 0)))
   (should-not (memq #'brainsurfacer--handle-state-change find-file-hook))
-  (should-not (memq #'brainsurfacer--handle-focus-change focus-in-hook)))
+  (should-not
+   (advice-member-p #'brainsurfacer--handle-focus-change
+                    after-focus-change-function)))
 
 (provide 'brainsurfacer-tests)
 

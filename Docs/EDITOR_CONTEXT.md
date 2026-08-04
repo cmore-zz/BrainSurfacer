@@ -70,7 +70,8 @@ The initial Emacs package is a single
 uses the editing mode—not the filename extension—to accept file-visiting
 buffers derived from `org-mode` or `markdown-mode`. The selected editor window,
 other windows on visible frames, and remaining eligible buffers become the
-selected, visible, and open groups respectively.
+selected, visible, and open groups respectively. Remote/TRAMP buffers are
+omitted because the app cannot resolve their editor-local paths.
 
 File visits, major-mode and visited-file changes, buffer closure, window/frame
 state, server visits, and focus changes schedule a complete snapshot through a
@@ -80,9 +81,10 @@ Emacs clears it.
 
 By default the package scans full process command lines for a running
 `*.app/Contents/MacOS/BrainSurfacer`, derives that bundle's helper path, and
-caches positive or negative discovery for ten seconds. It does nothing while
-the app is absent. An explicit helper setting and opt-in launch-on-context mode
-cover unusual installations. See the
+caches positive or negative discovery for ten seconds. A cached running app is
+validated through its process ID without another `ps` scan. It does nothing
+while the app is absent. An explicit helper setting and opt-in launch-on-context
+mode cover unusual installations. See the
 [Emacs connector guide](../Connectors/Emacs/README.md) for setup, customization,
 diagnostics, tests, and current limitations.
 

@@ -24,8 +24,11 @@ By default the package examines the process table only after a debounced editor
 change, finds a running executable at
 `Some Name.app/Contents/MacOS/BrainSurfacer`, and derives the helper path from
 that bundle. Both successful and unsuccessful discovery are cached for ten
-seconds. BrainSurfacer must already be running, so an ordinary buffer change
-does not launch the app.
+seconds. A cached positive result retains the app process ID and checks that it
+is still live without rerunning `ps`. BrainSurfacer must already be running, so
+an ordinary buffer change does not launch the app. Automatic discovery assumes
+the local process table is trustworthy; it does not perform a code-signature
+identity check.
 
 For an unusual installation, set `brainsurfacer-command` to an absolute helper
 path or executable name. Set `brainsurfacer-require-running-app` to `nil` only
@@ -33,7 +36,7 @@ if editor activity should be allowed to launch BrainSurfacer.
 
 ## What is reported
 
-The default `brainsurfacer-buffer-predicate` accepts file-visiting buffers
+The default `brainsurfacer-buffer-predicate` accepts local file-visiting buffers
 derived from `org-mode` or `markdown-mode`, regardless of extension. The
 snapshot assigns each eligible file its highest current relevance:
 
@@ -46,7 +49,9 @@ buffer closure, buffer-list changes, window selection/content/configuration,
 frame changes, server visits, and focus changes. Hooks restart a 250 ms debounce
 timer; one complete snapshot is collected after the burst. A heartbeat refreshes
 unchanged state before its 60-second TTL expires. Disabling the mode or exiting
-Emacs clears the provider.
+Emacs clears the provider. TTL settings outside BrainSurfacer's supported
+1–300-second range are normalized before both reporting and heartbeat
+scheduling.
 
 Context eligibility does not override BrainSurfacer indexing policy. For
 example, a `.txt` buffer in `org-mode` can be reported as editor context, but it
@@ -56,7 +61,8 @@ or opening.
 
 Indirect buffers use their base buffer's file. Org Agenda, capture buffers, and
 other non-file views are intentionally omitted from this first document-level
-connector; reporting their underlying heading/task anchors is a later slice.
+connector, as are remote/TRAMP files. Reporting underlying heading/task anchors
+is a later slice.
 
 Run `M-x brainsurfacer-diagnose` to see the discovered app/helper, the current
 snapshot, the last send time, and any helper error. Run
