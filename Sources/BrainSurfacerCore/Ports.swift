@@ -55,14 +55,27 @@ public protocol EntityCatalog: Sendable {
         with entities: [KnowledgeEntity]
     ) async throws -> EntityIndexChange
 
+    func replaceEntities(
+        from source: URL,
+        with entities: [KnowledgeEntity],
+        includeInPermanentIndex: Bool
+    ) async throws -> EntityIndexChange
+
     func entities(identifiedBy identifiers: [EntityID]) async throws -> [KnowledgeEntity]
     func entities(from source: URL) async throws -> [KnowledgeEntity]
     func allEntities() async throws -> [KnowledgeEntity]
+    func permanentlyIndexedEntities() async throws -> [KnowledgeEntity]
     func resolve(_ reference: EntityReference) async throws -> KnowledgeEntity?
 
     func stageReplacement(
         from source: URL,
         with entities: [KnowledgeEntity]
+    ) async throws -> PendingEntityIndexChange
+
+    func stageReplacement(
+        from source: URL,
+        with entities: [KnowledgeEntity],
+        includeInPermanentIndex: Bool
     ) async throws -> PendingEntityIndexChange
 
     func pendingIndexChanges() async throws -> [PendingEntityIndexChange]
@@ -72,6 +85,22 @@ public protocol EntityCatalog: Sendable {
 }
 
 public extension EntityCatalog {
+    func replaceEntities(
+        from source: URL,
+        with entities: [KnowledgeEntity],
+        includeInPermanentIndex: Bool
+    ) async throws -> EntityIndexChange {
+        let previous = try await self.entities(from: source)
+        let change = try await replaceEntities(from: source, with: entities)
+        guard !includeInPermanentIndex else {
+            return change
+        }
+        return EntityIndexChange(
+            upserts: [],
+            removals: Set(previous.map(\.id))
+        )
+    }
+
     /// Compatibility fallback for catalogs that do not persist exact source
     /// membership. Catalogs with source records should override this method;
     /// path containment cannot distinguish overlapping enrolled roots.
@@ -97,6 +126,24 @@ public extension EntityCatalog {
         PendingEntityIndexChange(
             change: try await replaceEntities(from: source, with: entities)
         )
+    }
+
+    func stageReplacement(
+        from source: URL,
+        with entities: [KnowledgeEntity],
+        includeInPermanentIndex: Bool
+    ) async throws -> PendingEntityIndexChange {
+        PendingEntityIndexChange(
+            change: try await replaceEntities(
+                from: source,
+                with: entities,
+                includeInPermanentIndex: includeInPermanentIndex
+            )
+        )
+    }
+
+    func permanentlyIndexedEntities() async throws -> [KnowledgeEntity] {
+        try await allEntities()
     }
 
     func pendingIndexChanges() async throws -> [PendingEntityIndexChange] {

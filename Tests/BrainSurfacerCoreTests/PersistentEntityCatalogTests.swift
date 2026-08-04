@@ -189,7 +189,7 @@ func incompatibleCatalogSchemaTriggersAFullProjectionRebuild() async throws {
     let data = try Data(contentsOf: fixture.catalogURL)
     let currentJSON = try #require(String(data: data, encoding: .utf8))
     let incompatibleJSON = currentJSON.replacingOccurrences(
-        of: "\"schemaVersion\":1",
+        of: "\"schemaVersion\":\(PersistentEntityCatalog.currentSchemaVersion)",
         with: "\"schemaVersion\":999"
     )
     #expect(incompatibleJSON != currentJSON)
@@ -204,6 +204,54 @@ func incompatibleCatalogSchemaTriggersAFullProjectionRebuild() async throws {
     #expect(await index.indexedIDs.isEmpty)
     let rebuildRequired = try await catalog.requiresFullRebuild()
     #expect(rebuildRequired)
+}
+
+@Test
+func localOnlyProjectionRemovalIsJournaledAndReplayedWithoutDeletingCatalogEntities() async throws {
+    let fixture = try CatalogFixture()
+    defer { fixture.remove() }
+
+    let source = URL(fileURLWithPath: "/notes/local-only.md")
+    let entity = makePersistentEntity(id: "local-only", source: source)
+    let initialCatalog = writableCatalog(at: fixture.catalogURL)
+    try await initialCatalog.markFullRebuildCompleted()
+    let initialCoordinator = IndexingCoordinator(
+        catalog: initialCatalog,
+        permanentIndex: SilentIndex()
+    )
+    try await initialCoordinator.replaceEntities(from: source, with: [entity])
+
+    let failingCoordinator = IndexingCoordinator(
+        catalog: initialCatalog,
+        permanentIndex: AlwaysFailingIndex()
+    )
+    await #expect(throws: PersistentIndexFailure.self) {
+        try await failingCoordinator.replaceEntities(
+            from: source,
+            with: [entity],
+            includeInPermanentIndex: false
+        )
+    }
+
+    #expect(try await initialCatalog.allEntities().map(\.id) == [entity.id])
+    #expect(try await initialCatalog.permanentlyIndexedEntities().isEmpty)
+    let pending = try await initialCatalog.pendingIndexChanges()
+    #expect(pending.count == 1)
+    #expect(pending.first?.change.upserts.isEmpty == true)
+    #expect(pending.first?.change.removals == [entity.id])
+
+    let relaunchedCatalog = writableCatalog(at: fixture.catalogURL)
+    let recordingIndex = PersistentRecordingIndex()
+    let recoveryCoordinator = IndexingCoordinator(
+        catalog: relaunchedCatalog,
+        permanentIndex: recordingIndex
+    )
+    try await recoveryCoordinator.replayPendingChanges()
+
+    #expect(await recordingIndex.changes.map(\.removals) == [[entity.id]])
+    #expect(try await relaunchedCatalog.allEntities().map(\.id) == [entity.id])
+    #expect(try await relaunchedCatalog.permanentlyIndexedEntities().isEmpty)
+    #expect(try await relaunchedCatalog.pendingIndexChanges().isEmpty)
 }
 
 @Test

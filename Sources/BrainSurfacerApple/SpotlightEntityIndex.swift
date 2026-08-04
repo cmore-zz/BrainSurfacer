@@ -76,7 +76,7 @@ public struct SpotlightKnowledgeEntity: IndexedEntity {
         }
 
         public func entities(for identifiers: [String]) async throws -> [SpotlightKnowledgeEntity] {
-            let projections = try await catalog.allEntities()
+            let projections = try await catalog.permanentlyIndexedEntities()
                 .filter { SpotlightProjection.kind(for: $0) == .custom }
                 .map(SpotlightKnowledgeEntity.init)
             var projectionByID: [String: SpotlightKnowledgeEntity] = [:]
@@ -113,7 +113,7 @@ public struct SpotlightKnowledgeEntity: IndexedEntity {
         ) async throws {
             let index = Self.index(for: indexDescription)
             try await index.deleteAppEntities(ofType: SpotlightKnowledgeEntity.self)
-            let entities = try await catalog.allEntities()
+            let entities = try await catalog.permanentlyIndexedEntities()
                 .filter { SpotlightProjection.kind(for: $0) == .custom }
                 .map(SpotlightKnowledgeEntity.init)
             if !entities.isEmpty {

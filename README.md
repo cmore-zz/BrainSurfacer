@@ -31,7 +31,9 @@ This repository contains an early, architecture-first prototype:
   directories, monitoring indexing, manually reindexing, and searching the
   resulting Spotlight content.
 
-The app currently persists opted-in directories, recursively scans Markdown and
+The app currently persists opted-in directories and lets each source choose
+both its content depth and whether discovery stays inside BrainSurfacer or also
+enrolls the source with Spotlight and Siri. It recursively scans Markdown and
 Org files, parses notes/headings/tasks with bounded section bodies, summaries,
 tags, links, planning dates, hierarchy, and precise source ranges, and submits
 them through the App Intents/Core Spotlight adapter. A versioned, rebuildable
@@ -56,10 +58,11 @@ Individual documents can opt out inside valid Markdown front matter with
 `brainsurfacer-index: false`, or in the Org preamble with
 `#+BRAINSURFACER_INDEX: false`. Opted-out files emit no searchable entities and
 remain excluded until their resource fingerprint changes.
-The Index view queries donated entities through Spotlight’s ranked user-query
-API and opens them through the same canonical resolution path as Spotlight and
-Siri App Intents. Durable `brainsurfacer://` links survive source moves recorded
-by the catalog. The app can route results to the default macOS application,
+The Index view merges the durable local catalog with Spotlight’s ranked
+user-query API, so local-only sources remain searchable without being donated
+to Apple. Results open through the same canonical resolution path as Spotlight
+and Siri App Intents. Durable `brainsurfacer://` links survive source moves
+recorded by the catalog. The app can route results to the default macOS application,
 Obsidian with a Markdown heading, or Emacs with a line and column, with safe
 fallback to the default application. A system in-app search intent opens the
 same Index UI and query flow. The parser and Apple projection remain deliberate

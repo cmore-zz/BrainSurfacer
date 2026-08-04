@@ -35,6 +35,42 @@ func replacingSourceRemovesStaleEntities() async throws {
 }
 
 @Test
+func localOnlyDiscoveryRevokesAndRestoresPermanentProjectionOnly() async throws {
+    let source = URL(fileURLWithPath: "/tmp/private.md")
+    let entity = KnowledgeEntity(
+        id: EntityID(rawValue: "private"),
+        kind: .note,
+        title: "Private",
+        source: SourceAnchor(fileURL: source)
+    )
+    let catalog = InMemoryEntityCatalog()
+    let index = RecordingIndex()
+    let coordinator = IndexingCoordinator(catalog: catalog, permanentIndex: index)
+
+    try await coordinator.replaceEntities(from: source, with: [entity])
+    try await coordinator.replaceEntities(
+        from: source,
+        with: [entity],
+        includeInPermanentIndex: false
+    )
+
+    #expect(try await coordinator.entities(from: source).map(\.id) == [entity.id])
+    #expect(try await catalog.permanentlyIndexedEntities().isEmpty)
+    var changes = await index.changes
+    #expect(changes.count == 2)
+    #expect(changes[1].upserts.isEmpty)
+    #expect(changes[1].removals == [entity.id])
+
+    try await coordinator.replaceEntities(from: source, with: [entity])
+
+    changes = await index.changes
+    #expect(changes.count == 3)
+    #expect(changes[2].upserts.map(\.id) == [entity.id])
+    #expect(changes[2].removals.isEmpty)
+    #expect(try await catalog.permanentlyIndexedEntities().map(\.id) == [entity.id])
+}
+
+@Test
 func permanentIndexesWithoutResetCapabilityFailExplicitly() async {
     let index = ApplyOnlyIndex()
 

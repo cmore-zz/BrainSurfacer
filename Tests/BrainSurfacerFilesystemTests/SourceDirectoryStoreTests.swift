@@ -104,11 +104,19 @@ func sourceConfigurationsPersistWithEnrollmentAndAreRemovedWithIt() async throws
         await store.updateConfiguration(
             pathPolicy: policy,
             indexingMode: .metadataOnly,
+            discoveryScope: .localOnly,
             for: source
         ).first
     )
     let pathOnlyUpdateFromStaleSource = try #require(
         await store.updatePathPolicy(policy, for: source).first
+    )
+    let modeUpdateFromStaleSource = try #require(
+        await store.updateConfiguration(
+            pathPolicy: policy,
+            indexingMode: .metadataOnly,
+            for: source
+        ).first
     )
     let relaunched = SourceDirectoryStore(
         suiteName: suiteName,
@@ -117,14 +125,19 @@ func sourceConfigurationsPersistWithEnrollmentAndAreRemovedWithIt() async throws
 
     #expect(updated.pathPolicy == policy)
     #expect(updated.indexingMode == .metadataOnly)
+    #expect(updated.discoveryScope == .localOnly)
     #expect(pathOnlyUpdateFromStaleSource.indexingMode == .metadataOnly)
+    #expect(pathOnlyUpdateFromStaleSource.discoveryScope == .localOnly)
+    #expect(modeUpdateFromStaleSource.discoveryScope == .localOnly)
     #expect(await relaunched.load().first?.pathPolicy == policy)
     #expect(await relaunched.load().first?.indexingMode == .metadataOnly)
+    #expect(await relaunched.load().first?.discoveryScope == .localOnly)
 
     _ = await relaunched.remove(updated)
     let reenrolled = try #require(try await relaunched.add([directory]).first)
     #expect(reenrolled.pathPolicy.isUnrestricted)
     #expect(reenrolled.indexingMode == .fullContent)
+    #expect(reenrolled.discoveryScope == .localAndApple)
 }
 
 @Test
@@ -163,6 +176,7 @@ func legacyBookmarkArraysMigrateToUnrestrictedEnrollmentRecords() async throws {
     #expect(migrated.url == directory.standardizedFileURL)
     #expect(migrated.pathPolicy.isUnrestricted)
     #expect(migrated.indexingMode == .fullContent)
+    #expect(migrated.discoveryScope == .localAndApple)
     #expect(defaults.data(forKey: storageKey) != nil)
     #expect(await relaunched.load() == [migrated])
 }
@@ -192,7 +206,7 @@ func decodableFutureEnrollmentSchemasRemainVisibleOnDowngrade() async throws {
     var storedObject = try #require(
         JSONSerialization.jsonObject(with: storedData) as? [String: Any]
     )
-    storedObject["schemaVersion"] = 3
+    storedObject["schemaVersion"] = 4
     storedObject["futureMetadata"] = ["preservedByNewerWriter": true]
     let futureData = try JSONSerialization.data(withJSONObject: storedObject)
     defaults.set(futureData, forKey: storageKey)
@@ -213,7 +227,7 @@ func decodableFutureEnrollmentSchemasRemainVisibleOnDowngrade() async throws {
 }
 
 @Test
-func enrollmentRecordsWithoutModesDefaultToFullContent() async throws {
+func enrollmentRecordsWithoutModesOrScopesUseHistoricalDefaults() async throws {
     let suiteName = "BrainSurfacerTests.\(UUID().uuidString)"
     let storageKey = "testModeMigrationEnrollments"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -239,6 +253,7 @@ func enrollmentRecordsWithoutModesDefaultToFullContent() async throws {
     )
     var enrollments = try #require(storedObject["enrollments"] as? [[String: Any]])
     enrollments[0].removeValue(forKey: "indexingMode")
+    enrollments[0].removeValue(forKey: "discoveryScope")
     storedObject["schemaVersion"] = 1
     storedObject["enrollments"] = enrollments
     defaults.set(
@@ -253,7 +268,16 @@ func enrollmentRecordsWithoutModesDefaultToFullContent() async throws {
     let source = try #require(await migrated.load().first)
 
     #expect(source.indexingMode == .fullContent)
+    #expect(source.discoveryScope == .localAndApple)
     #expect(source.pathPolicy.isUnrestricted)
+}
+
+@Test
+func unknownFutureDiscoveryScopesFailClosedToLocalOnly() throws {
+    let data = try #require("\"future-sharing-scope\"".data(using: .utf8))
+    let scope = try JSONDecoder().decode(SourceDiscoveryScope.self, from: data)
+
+    #expect(scope == .localOnly)
 }
 
 @Test

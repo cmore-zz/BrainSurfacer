@@ -35,7 +35,12 @@ public actor SourceReconciler {
                 fingerprints: [:]
             )
             do {
-                try await coordinator.replaceEntities(from: source.url, with: [])
+                try await coordinator.replaceEntities(
+                    from: source.url,
+                    with: [],
+                    includeInPermanentIndex: source.discoveryScope
+                        .includesPermanentIndex
+                )
             } catch {
                 try? await fingerprintStore.removeFingerprints(for: source.url)
                 throw error
@@ -57,7 +62,8 @@ public actor SourceReconciler {
 
         try await coordinator.replaceEntities(
             from: source.url,
-            with: result.entities
+            with: result.entities,
+            includeInPermanentIndex: source.discoveryScope.includesPermanentIndex
         )
         // Fingerprints are disposable optimization state. If this write fails,
         // the catalog and permanent index are still correct; the next pass

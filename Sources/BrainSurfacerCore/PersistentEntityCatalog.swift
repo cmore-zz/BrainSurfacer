@@ -2,7 +2,7 @@ import BrainSurfacerModel
 import Foundation
 
 public actor PersistentEntityCatalog: EntityCatalog {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
 
     public enum AccessMode: Sendable, Equatable {
         case readOnly
@@ -14,6 +14,7 @@ public actor PersistentEntityCatalog: EntityCatalog {
 
     private var entitiesByID: [EntityID: KnowledgeEntity] = [:]
     private var identifiersBySource: [URL: Set<EntityID>] = [:]
+    private var projectedIdentifiersBySource: [URL: Set<EntityID>] = [:]
     private var providerReferences: [ProviderReference: EntityID] = [:]
     private var pendingChanges: [PendingEntityIndexChange] = []
     private var fullRebuildRequired = false
@@ -44,7 +45,27 @@ public actor PersistentEntityCatalog: EntityCatalog {
     ) throws -> EntityIndexChange {
         try requireCoordinatingWriter()
         try reload()
-        let change = replaceInMemory(from: source, with: entities)
+        let change = replaceInMemory(
+            from: source,
+            with: entities,
+            includeInPermanentIndex: true
+        )
+        try persist()
+        return change
+    }
+
+    public func replaceEntities(
+        from source: URL,
+        with entities: [KnowledgeEntity],
+        includeInPermanentIndex: Bool
+    ) async throws -> EntityIndexChange {
+        try requireCoordinatingWriter()
+        try reload()
+        let change = replaceInMemory(
+            from: source,
+            with: entities,
+            includeInPermanentIndex: includeInPermanentIndex
+        )
         try persist()
         return change
     }
@@ -56,7 +77,30 @@ public actor PersistentEntityCatalog: EntityCatalog {
         try requireCoordinatingWriter()
         try reload()
         let pending = PendingEntityIndexChange(
-            change: replaceInMemory(from: source, with: entities)
+            change: replaceInMemory(
+                from: source,
+                with: entities,
+                includeInPermanentIndex: true
+            )
+        )
+        pendingChanges.append(pending)
+        try persist()
+        return pending
+    }
+
+    public func stageReplacement(
+        from source: URL,
+        with entities: [KnowledgeEntity],
+        includeInPermanentIndex: Bool
+    ) async throws -> PendingEntityIndexChange {
+        try requireCoordinatingWriter()
+        try reload()
+        let pending = PendingEntityIndexChange(
+            change: replaceInMemory(
+                from: source,
+                with: entities,
+                includeInPermanentIndex: includeInPermanentIndex
+            )
         )
         pendingChanges.append(pending)
         try persist()
@@ -105,6 +149,17 @@ public actor PersistentEntityCatalog: EntityCatalog {
     public func allEntities() throws -> [KnowledgeEntity] {
         try reload()
         return entitiesByID.values.sorted { $0.id.rawValue < $1.id.rawValue }
+    }
+
+    public func permanentlyIndexedEntities() async throws -> [KnowledgeEntity] {
+        try reload()
+        let identifiers = projectedIdentifiersBySource.values.reduce(
+            into: Set<EntityID>()
+        ) {
+            $0.formUnion($1)
+        }
+        return identifiers.compactMap { entitiesByID[$0] }
+            .sorted { $0.id.rawValue < $1.id.rawValue }
     }
 
     public func resolve(_ reference: EntityReference) throws -> KnowledgeEntity? {
@@ -170,7 +225,8 @@ public actor PersistentEntityCatalog: EntityCatalog {
 
     private func replaceInMemory(
         from source: URL,
-        with entities: [KnowledgeEntity]
+        with entities: [KnowledgeEntity],
+        includeInPermanentIndex: Bool
     ) -> EntityIndexChange {
         let source = source.standardizedFileURL
         let previousSource = EntityIdentityStabilizer.movedSourceCandidate(
@@ -180,15 +236,21 @@ public actor PersistentEntityCatalog: EntityCatalog {
             entitiesByID: entitiesByID
         ) ?? source
         let previous = identifiersBySource[previousSource, default: []]
+        let previousProjected = projectedIdentifiersBySource[
+            previousSource,
+            default: []
+        ]
         let previousEntities = previous.compactMap { entitiesByID[$0] }
         let entities = EntityIdentityStabilizer.stabilize(
             entities,
             against: previousEntities
         )
         let next = Set(entities.map(\.id))
-        let removals = previous.subtracting(next)
+        let removedLocalIdentifiers = previous.subtracting(next)
+        let nextProjected = includeInPermanentIndex ? next : []
+        let projectionRemovals = previousProjected.subtracting(nextProjected)
 
-        for identifier in removals {
+        for identifier in removedLocalIdentifiers {
             entitiesByID.removeValue(forKey: identifier)
         }
         for entity in entities {
@@ -196,10 +258,15 @@ public actor PersistentEntityCatalog: EntityCatalog {
         }
         if previousSource != source {
             identifiersBySource.removeValue(forKey: previousSource)
+            projectedIdentifiersBySource.removeValue(forKey: previousSource)
         }
         identifiersBySource[source] = next
+        projectedIdentifiersBySource[source] = nextProjected
 
-        return EntityIndexChange(upserts: entities, removals: removals)
+        return EntityIndexChange(
+            upserts: includeInPermanentIndex ? entities : [],
+            removals: projectionRemovals
+        )
     }
 
     private func candidates(for fileURL: URL) -> [KnowledgeEntity] {
@@ -249,6 +316,12 @@ public actor PersistentEntityCatalog: EntityCatalog {
             },
             uniquingKeysWith: { previous, latest in previous.union(latest) }
         )
+        projectedIdentifiersBySource = Dictionary(
+            state.sources.map {
+                ($0.url.standardizedFileURL, Set($0.projectedIdentifiers))
+            },
+            uniquingKeysWith: { previous, latest in previous.union(latest) }
+        )
         providerReferences = Dictionary(
             state.providerReferences.map {
                 (
@@ -283,6 +356,7 @@ public actor PersistentEntityCatalog: EntityCatalog {
     private func resetInMemory(fullRebuildRequired: Bool) {
         entitiesByID = [:]
         identifiersBySource = [:]
+        projectedIdentifiersBySource = [:]
         providerReferences = [:]
         pendingChanges = []
         self.fullRebuildRequired = fullRebuildRequired
@@ -301,7 +375,11 @@ public actor PersistentEntityCatalog: EntityCatalog {
             sources: identifiersBySource.map {
                 SourceRecord(
                     url: $0.key,
-                    identifiers: $0.value.sorted { $0.rawValue < $1.rawValue }
+                    identifiers: $0.value.sorted { $0.rawValue < $1.rawValue },
+                    projectedIdentifiers: projectedIdentifiersBySource[
+                        $0.key,
+                        default: []
+                    ].sorted { $0.rawValue < $1.rawValue }
                 )
             }.sorted { $0.url.path < $1.url.path },
             providerReferences: providerReferences.map {
@@ -362,6 +440,7 @@ private extension PersistentEntityCatalog {
     struct SourceRecord: Codable {
         var url: URL
         var identifiers: [EntityID]
+        var projectedIdentifiers: [EntityID]
     }
 
     struct ProviderReferenceRecord: Codable {
