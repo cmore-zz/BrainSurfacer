@@ -200,6 +200,41 @@ func fingerprintWriteFailureDoesNotTurnSuccessfulIndexingIntoFailure() async thr
 }
 
 @Test
+func pausedReconciliationReportsFingerprintRemovalFailure() async throws {
+    let fixture = try ReconciliationFixture()
+    defer { fixture.remove() }
+
+    let fileInsteadOfDirectory = fixture.directoryURL.appending(path: "blocked")
+    try "not a directory".write(
+        to: fileInsteadOfDirectory,
+        atomically: true,
+        encoding: .utf8
+    )
+    let catalog = InMemoryEntityCatalog()
+    let reconciler = SourceReconciler(
+        fingerprintStore: SourceFingerprintStore(
+            storageURL: fileInsteadOfDirectory.appending(path: "fingerprints.json")
+        ),
+        coordinator: IndexingCoordinator(
+            catalog: catalog,
+            permanentIndex: ReconciliationRecordingIndex()
+        )
+    )
+    var didThrow = false
+
+    do {
+        _ = try await reconciler.reconcile(
+            SourceDirectory(url: fixture.source.url, indexingMode: .paused)
+        )
+    } catch {
+        didThrow = true
+    }
+
+    #expect(didThrow)
+    #expect(await catalog.entities(from: fixture.source.url).isEmpty)
+}
+
+@Test
 func cancelledReconciliationStopsBeforeIndexing() async throws {
     let fixture = try ReconciliationFixture()
     defer { fixture.remove() }

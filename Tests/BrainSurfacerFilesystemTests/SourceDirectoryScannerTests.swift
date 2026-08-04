@@ -407,6 +407,59 @@ func incompleteEnumerationRetainsIncludedFilesButDropsPolicyExclusions() async t
 }
 
 @Test
+func incompleteEnumerationKeepsRetainedEntitiesAndFingerprintsAtTheStrictestMode() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerIncompleteMode-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    let fileURL = root.appending(path: "Private.md")
+    try "# Plan\nPrivate details".write(
+        to: fileURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let scanner = SourceDirectoryScanner()
+    let full = try await scanner.scan(SourceDirectory(url: root))
+    let incompleteScanner = SourceDirectoryScanner(
+        enumerationSnapshot: SourceDirectoryEnumerationSnapshot(
+            candidateURLs: [],
+            diagnostics: [],
+            wasComplete: false
+        )
+    )
+    let metadata = try await incompleteScanner.scan(
+        SourceDirectory(url: root, indexingMode: .metadataOnly),
+        previousFingerprints: full.fingerprints,
+        previousEntities: full.entities
+    )
+
+    #expect(metadata.entities.allSatisfy { $0.body == nil })
+    #expect(metadata.fingerprints[fileURL.standardizedFileURL]?.indexingMode == .metadataOnly)
+
+    let restored = try await scanner.scan(
+        SourceDirectory(url: root),
+        previousFingerprints: metadata.fingerprints,
+        previousEntities: metadata.entities
+    )
+
+    #expect(restored.parsedFileCount == 1)
+    #expect(restored.entities.contains { $0.body?.contains("Private details") == true })
+
+    let incompleteFull = try await incompleteScanner.scan(
+        SourceDirectory(url: root),
+        previousFingerprints: metadata.fingerprints,
+        previousEntities: metadata.entities
+    )
+    #expect(incompleteFull.fingerprints[fileURL.standardizedFileURL]?.indexingMode == .metadataOnly)
+}
+
+@Test
 func scannerBoundsConcurrentParsing() async throws {
     let root = try makeScannerFixture(fileCount: 12)
     defer {

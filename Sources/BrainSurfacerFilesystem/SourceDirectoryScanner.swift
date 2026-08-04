@@ -159,12 +159,18 @@ public struct SourceDirectoryScanner: Sendable {
                     contentsOf: previousEntitiesByFile[fileURL, default: []]
                 )
                 if let previousFingerprint = previousFingerprints[fileURL] {
-                    enumeration.fingerprints[fileURL] = previousFingerprint
+                    var retainedFingerprint = previousFingerprint
+                    if source.indexingMode == .metadataOnly {
+                        retainedFingerprint.indexingMode = .metadataOnly
+                    }
+                    enumeration.fingerprints[fileURL] = retainedFingerprint
                 }
                 enumeration.fileCount += 1
             }
         }
 
+        // Privacy-critical: keep this as the final entity transform so fresh,
+        // reused, and last-known-good entities are stripped before projection.
         enumeration.entities = source.indexingMode.applying(
             to: enumeration.entities
         )

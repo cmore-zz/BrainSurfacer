@@ -40,7 +40,7 @@ public actor SourceReconciler {
                 try? await fingerprintStore.removeFingerprints(for: source.url)
                 throw error
             }
-            try? await fingerprintStore.removeFingerprints(for: source.url)
+            try await fingerprintStore.removeFingerprints(for: source.url)
             return result
         }
 

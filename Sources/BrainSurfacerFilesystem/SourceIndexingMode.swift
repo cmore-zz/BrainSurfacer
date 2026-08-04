@@ -33,11 +33,20 @@ public enum SourceIndexingMode: String, Codable, CaseIterable, Hashable, Sendabl
                         true
                     }
                 }
-                entity.attributes.removeValue(forKey: "bodyTruncated")
+                entity.attributes = entity.attributes.filter {
+                    Self.metadataOnlyAttributeKeys.contains($0.key)
+                }
                 return entity
             }
         case .paused:
             []
         }
     }
+
+    private static let metadataOnlyAttributeKeys: Set<String> = [
+        "taskState",
+        EntityIdentityMetadata.observedIdentifier,
+        EntityIdentityMetadata.explicitIdentifier,
+        EntityIdentityMetadata.structuralFingerprint
+    ]
 }

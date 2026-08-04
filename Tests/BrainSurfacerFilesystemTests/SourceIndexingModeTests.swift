@@ -38,7 +38,11 @@ func metadataOnlyRemovesContentWhileRetainingStructuralMetadata() {
         source: source,
         attributes: [
             "bodyTruncated": "true",
-            "taskState": "TODO"
+            "taskState": "TODO",
+            "futureExcerpt": "Private future content",
+            EntityIdentityMetadata.observedIdentifier: "observed-id",
+            EntityIdentityMetadata.explicitIdentifier: "explicit-id",
+            EntityIdentityMetadata.structuralFingerprint: "structural-id"
         ]
     )
 
@@ -53,6 +57,10 @@ func metadataOnlyRemovesContentWhileRetainingStructuralMetadata() {
     #expect(projected.relationships == [
         Relationship(kind: .parent, target: parentID)
     ])
-    #expect(projected.attributes["bodyTruncated"] == nil)
-    #expect(projected.attributes["taskState"] == "TODO")
+    #expect(projected.attributes == [
+        "taskState": "TODO",
+        EntityIdentityMetadata.observedIdentifier: "observed-id",
+        EntityIdentityMetadata.explicitIdentifier: "explicit-id",
+        EntityIdentityMetadata.structuralFingerprint: "structural-id"
+    ])
 }
