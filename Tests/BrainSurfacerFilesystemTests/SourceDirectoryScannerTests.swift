@@ -55,6 +55,117 @@ func scannerRecursivelyParsesSupportedKnowledgeFiles() async throws {
 }
 
 @Test
+func scannerReusesMetadataExcludedFilesAndReindexesThemAfterOptIn() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerDocumentOptOut-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    let includedFile = root.appending(path: "Included.md")
+    let privateMarkdown = root.appending(path: "Private.md")
+    let privateOrg = root.appending(path: "Private.org")
+    try "# Included".write(to: includedFile, atomically: true, encoding: .utf8)
+    try """
+    ---
+    brainsurfacer-index: false
+    ---
+    # Private Markdown
+    """.write(to: privateMarkdown, atomically: true, encoding: .utf8)
+    try """
+    #+BRAINSURFACER_INDEX: off
+    * Private Org
+    """.write(to: privateOrg, atomically: true, encoding: .utf8)
+
+    let scanner = SourceDirectoryScanner()
+    let source = SourceDirectory(url: root)
+    let initial = try await scanner.scan(source)
+
+    #expect(initial.fileCount == 3)
+    #expect(initial.parsedFileCount == 3)
+    #expect(initial.entities.allSatisfy {
+        $0.source.fileURL.standardizedFileURL == includedFile.standardizedFileURL
+    })
+    #expect(initial.fingerprints[privateMarkdown.standardizedFileURL]?
+        .wasExcludedByDocumentMetadata == true)
+    #expect(initial.fingerprints[privateOrg.standardizedFileURL]?
+        .wasExcludedByDocumentMetadata == true)
+    #expect(initial.fingerprints[includedFile.standardizedFileURL]?
+        .wasExcludedByDocumentMetadata == false)
+
+    let unchanged = try await scanner.scan(
+        source,
+        previousFingerprints: initial.fingerprints,
+        previousEntities: initial.entities
+    )
+
+    #expect(unchanged.parsedFileCount == 0)
+    #expect(unchanged.reusedFileCount == 3)
+    #expect(unchanged.entities == initial.entities)
+
+    try "# Restored Markdown\nNow searchable again.".write(
+        to: privateMarkdown,
+        atomically: true,
+        encoding: .utf8
+    )
+    let restored = try await scanner.scan(
+        source,
+        previousFingerprints: unchanged.fingerprints,
+        previousEntities: unchanged.entities
+    )
+
+    #expect(restored.parsedFileCount == 1)
+    #expect(restored.reusedFileCount == 2)
+    #expect(restored.entities.contains { $0.title == "Restored Markdown" })
+    #expect(restored.fingerprints[privateMarkdown.standardizedFileURL]?
+        .wasExcludedByDocumentMetadata == false)
+    #expect(!restored.entities.contains { $0.title == "Private Org" })
+}
+
+@Test
+func metadataOptOutRevokesLastKnownGoodEntitiesDespiteMalformedBodyBytes() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerMalformedOptOut-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    let fileURL = root.appending(path: "Private.md")
+    try "# Previously indexed\nPrivate details".write(
+        to: fileURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let scanner = SourceDirectoryScanner()
+    let source = SourceDirectory(url: root)
+    let initial = try await scanner.scan(source)
+    var malformedOptOut = Data(
+        "---\nbrainsurfacer-index: false\n---\n".utf8
+    )
+    malformedOptOut.append(contentsOf: [0xFF, 0xFE, 0xFD])
+    try malformedOptOut.write(to: fileURL, options: [.atomic])
+
+    let revoked = try await scanner.scan(
+        source,
+        previousFingerprints: initial.fingerprints,
+        previousEntities: initial.entities
+    )
+
+    #expect(revoked.entities.isEmpty)
+    #expect(revoked.diagnostics.isEmpty)
+    #expect(revoked.fingerprints[fileURL.standardizedFileURL]?
+        .wasExcludedByDocumentMetadata == true)
+}
+
+@Test
 func scannerSkipsSymbolicLinksOutsideTheSourceRoot() async throws {
     let container = FileManager.default.temporaryDirectory
         .appending(path: "BrainSurfacerSymlinks-\(UUID().uuidString)", directoryHint: .isDirectory)

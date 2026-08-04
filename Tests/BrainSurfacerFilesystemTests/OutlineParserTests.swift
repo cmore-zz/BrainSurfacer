@@ -255,6 +255,94 @@ func markdownExtractionRejectsAmbiguousOrInvalidMetadata() throws {
 }
 
 @Test
+func documentMetadataCanExplicitlyOptOutOfIndexing() {
+    let documents = [
+        SourceDocument(
+            fileURL: URL(fileURLWithPath: "/tmp/Private.md"),
+            format: .markdown,
+            contents: """
+            ---
+            brainsurfacer-index: false
+            ---
+            # Private
+            This must not be indexed.
+            """
+        ),
+        SourceDocument(
+            fileURL: URL(fileURLWithPath: "/tmp/Private.org"),
+            format: .org,
+            contents: """
+            #+TITLE: Private
+            #+BRAINSURFACER_INDEX: NO
+            * Private
+            This must not be indexed.
+            """
+        ),
+        SourceDocument(
+            fileURL: URL(fileURLWithPath: "/tmp/Unterminated.md"),
+            format: .markdown,
+            contents: """
+            ---
+            title: Malformed front matter
+            brainsurfacer-index: 'OFF'
+            # Still private despite the missing closing fence
+            """
+        )
+    ]
+
+    for document in documents {
+        #expect(OutlineParser().parse(document).isEmpty)
+    }
+}
+
+@Test
+func indexingOptOutRequiresNamespacedDocumentMetadata() {
+    let documents = [
+        SourceDocument(
+            fileURL: URL(fileURLWithPath: "/tmp/Generic.md"),
+            format: .markdown,
+            contents: """
+            ---
+            index: false
+            brainsurfacer-index: true
+            ---
+            # Still visible
+            """
+        ),
+        SourceDocument(
+            fileURL: URL(fileURLWithPath: "/tmp/Body.md"),
+            format: .markdown,
+            contents: """
+            # Still visible
+            brainsurfacer-index: false
+            """
+        ),
+        SourceDocument(
+            fileURL: URL(fileURLWithPath: "/tmp/Body.org"),
+            format: .org,
+            contents: """
+            * Still visible
+            #+BRAINSURFACER_INDEX: false
+            """
+        ),
+        SourceDocument(
+            fileURL: URL(fileURLWithPath: "/tmp/UnterminatedVisible.md"),
+            format: .markdown,
+            contents: """
+            ---
+            index: false
+            brainsurfacer-index: true
+            # Still visible
+            """
+        )
+    ]
+
+    for document in documents {
+        #expect(!OutlineParser().parse(document).isEmpty)
+    }
+}
+
+@Test
 func documentMetadataExtractionStopsAtTheSearchableBodyBoundary() throws {
     let retainedPrefix = String(
         repeating: " ",

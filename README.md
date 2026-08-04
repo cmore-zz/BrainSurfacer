@@ -52,6 +52,10 @@ entities only after a complete source enumeration confirms deletion. A parser
 output revision invalidates cached fingerprints after parsing behavior changes;
 same-size edits that deliberately preserve modification time remain a known
 metadata-fingerprint limitation.
+Individual documents can opt out inside valid Markdown front matter with
+`brainsurfacer-index: false`, or in the Org preamble with
+`#+BRAINSURFACER_INDEX: false`. Opted-out files emit no searchable entities and
+remain excluded until their resource fingerprint changes.
 The Index view queries donated entities through Spotlight’s ranked user-query
 API and opens them through the same canonical resolution path as Spotlight and
 Siri App Intents. Durable `brainsurfacer://` links survive source moves recorded

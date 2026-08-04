@@ -53,7 +53,7 @@ public struct SourceDirectoryScanner: Sendable {
 
     private let maximumConcurrentFileParses: Int
     private let enumerationSnapshot: SourceDirectoryEnumerationSnapshot?
-    private let fileParser: @Sendable (SourceFileParseRequest) async throws -> [KnowledgeEntity]
+    private let fileParser: @Sendable (SourceFileParseRequest) async throws -> SourceDocumentParseResult
 
     public init(
         parser: OutlineParser = OutlineParser(),
@@ -62,7 +62,7 @@ public struct SourceDirectoryScanner: Sendable {
         self.init(
             maximumConcurrentFileParses: maximumConcurrentFileParses,
             enumerationSnapshot: nil,
-            fileParser: Self.productionFileParser(parser: parser)
+            parsedFileProvider: Self.productionFileParser(parser: parser)
         )
     }
 
@@ -73,7 +73,12 @@ public struct SourceDirectoryScanner: Sendable {
         self.init(
             maximumConcurrentFileParses: maximumConcurrentFileParses,
             enumerationSnapshot: nil,
-            fileParser: fileParser
+            parsedFileProvider: { request in
+                SourceDocumentParseResult(
+                    entities: try await fileParser(request),
+                    wasExcludedByDocumentMetadata: false
+                )
+            }
         )
     }
 
@@ -85,18 +90,18 @@ public struct SourceDirectoryScanner: Sendable {
         self.init(
             maximumConcurrentFileParses: maximumConcurrentFileParses,
             enumerationSnapshot: enumerationSnapshot,
-            fileParser: Self.productionFileParser(parser: parser)
+            parsedFileProvider: Self.productionFileParser(parser: parser)
         )
     }
 
     private init(
         maximumConcurrentFileParses: Int,
         enumerationSnapshot: SourceDirectoryEnumerationSnapshot?,
-        fileParser: @escaping @Sendable (SourceFileParseRequest) async throws -> [KnowledgeEntity]
+        parsedFileProvider: @escaping @Sendable (SourceFileParseRequest) async throws -> SourceDocumentParseResult
     ) {
         self.maximumConcurrentFileParses = max(1, maximumConcurrentFileParses)
         self.enumerationSnapshot = enumerationSnapshot
-        self.fileParser = fileParser
+        self.fileParser = parsedFileProvider
     }
 
     public func scan(
@@ -288,12 +293,17 @@ public struct SourceDirectoryScanner: Sendable {
             result.fileCount += 1
             let currentFingerprint = fingerprint(
                 from: values,
-                indexingMode: indexingMode
+                indexingMode: indexingMode,
+                wasExcludedByDocumentMetadata: previousFingerprints[fileURL]?
+                    .wasExcludedByDocumentMetadata ?? false
             )
             if let currentFingerprint,
                currentFingerprint == previousFingerprints[fileURL],
-               !previousFileEntities.isEmpty {
-                result.entities.append(contentsOf: previousFileEntities)
+               currentFingerprint.wasExcludedByDocumentMetadata
+                    || !previousFileEntities.isEmpty {
+                if !currentFingerprint.wasExcludedByDocumentMetadata {
+                    result.entities.append(contentsOf: previousFileEntities)
+                }
                 result.fingerprints[fileURL] = currentFingerprint
                 result.reusedFileCount += 1
                 return
@@ -362,12 +372,15 @@ public struct SourceDirectoryScanner: Sendable {
     ) async throws -> SourceFileParseOutcome {
         do {
             try Task.checkCancellation()
-            let parsedEntities = try await fileParser(request)
+            let parsed = try await fileParser(request)
             try Task.checkCancellation()
+            var fingerprint = request.currentFingerprint
+            fingerprint?.wasExcludedByDocumentMetadata =
+                parsed.wasExcludedByDocumentMetadata
             return SourceFileParseOutcome(
                 fileURL: request.fileURL,
-                entities: parsedEntities,
-                fingerprint: request.currentFingerprint,
+                entities: parsed.entities,
+                fingerprint: fingerprint,
                 diagnosticMessage: nil
             )
         } catch is CancellationError {
@@ -384,7 +397,8 @@ public struct SourceDirectoryScanner: Sendable {
 
     private func fingerprint(
         from values: URLResourceValues,
-        indexingMode: SourceIndexingMode
+        indexingMode: SourceIndexingMode,
+        wasExcludedByDocumentMetadata: Bool
     ) -> SourceFileFingerprint? {
         guard let modifiedAt = values.contentModificationDate,
               let fileSize = values.fileSize else {
@@ -393,7 +407,8 @@ public struct SourceDirectoryScanner: Sendable {
         return SourceFileFingerprint(
             modifiedAt: modifiedAt,
             fileSize: Int64(fileSize),
-            indexingMode: indexingMode
+            indexingMode: indexingMode,
+            wasExcludedByDocumentMetadata: wasExcludedByDocumentMetadata
         )
     }
 
@@ -459,15 +474,27 @@ public struct SourceDirectoryScanner: Sendable {
 
     private static func productionFileParser(
         parser: OutlineParser
-    ) -> @Sendable (SourceFileParseRequest) async throws -> [KnowledgeEntity] {
+    ) -> @Sendable (SourceFileParseRequest) async throws -> SourceDocumentParseResult {
         { request in
             try Task.checkCancellation()
-            let contents = try String(
-                contentsOf: request.fileURL,
-                encoding: .utf8
-            )
+            let data = try Data(contentsOf: request.fileURL)
             try Task.checkCancellation()
-            return parser.parse(
+            guard let contents = String(data: data, encoding: .utf8) else {
+                let lossyDocument = SourceDocument(
+                    fileURL: request.fileURL,
+                    format: request.format,
+                    contents: String(decoding: data, as: UTF8.self),
+                    modifiedAt: request.modifiedAt
+                )
+                if parser.excludesIndexing(lossyDocument) {
+                    return SourceDocumentParseResult(
+                        entities: [],
+                        wasExcludedByDocumentMetadata: true
+                    )
+                }
+                throw CocoaError(.fileReadInapplicableStringEncoding)
+            }
+            return parser.parseResult(
                 SourceDocument(
                     fileURL: request.fileURL,
                     format: request.format,

@@ -83,6 +83,60 @@ func reconciliationRemovesFilesExcludedByAChangedSourcePolicy() async throws {
 }
 
 @Test
+func reconciliationRevokesAndRestoresDocumentsUsingMetadataOptOut() async throws {
+    let fixture = try ReconciliationFixture()
+    defer { fixture.remove() }
+
+    let fileURL = fixture.source.url.appending(path: "Private.md")
+    try "# Initially searchable\nPrivate details".write(
+        to: fileURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let catalog = InMemoryEntityCatalog()
+    let index = ReconciliationRecordingIndex()
+    let fingerprints = SourceFingerprintStore(storageURL: fixture.fingerprintURL)
+    let reconciler = SourceReconciler(
+        fingerprintStore: fingerprints,
+        coordinator: IndexingCoordinator(catalog: catalog, permanentIndex: index)
+    )
+    _ = try await reconciler.reconcile(fixture.source)
+    let initialIDs = Set(
+        await catalog.entities(from: fixture.source.url).map(\.id)
+    )
+    #expect(!initialIDs.isEmpty)
+
+    try """
+    ---
+    brainsurfacer-index: false
+    ---
+    # No longer searchable
+    Private details
+    """.write(to: fileURL, atomically: true, encoding: .utf8)
+    let excluded = try await reconciler.reconcile(fixture.source)
+    let exclusionChange = try #require(await index.changes.last)
+
+    #expect(excluded.entities.isEmpty)
+    #expect(await catalog.entities(from: fixture.source.url).isEmpty)
+    #expect(exclusionChange.removals == initialIDs)
+    #expect(await fingerprints.fingerprints(for: fixture.source.url)[
+        fileURL.standardizedFileURL
+    ]?.wasExcludedByDocumentMetadata == true)
+
+    try "# Searchable again\nRestored details".write(
+        to: fileURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let restored = try await reconciler.reconcile(fixture.source)
+
+    #expect(restored.parsedFileCount == 1)
+    #expect(await catalog.entities(from: fixture.source.url).contains {
+        $0.body?.contains("Restored details") == true
+    })
+}
+
+@Test
 func reconciliationRevokesAndRestoresDataAcrossIndexingModes() async throws {
     let fixture = try ReconciliationFixture()
     defer { fixture.remove() }

@@ -6,7 +6,7 @@ public struct OutlineParser: Sendable {
     /// Increment whenever unchanged source text can produce different entities.
     /// Persisted file fingerprints include this value to force reparsing after
     /// parser-output changes.
-    public static let outputRevision = 1
+    public static let outputRevision = 2
     public static let maximumHeadingDepth = 32
     public static let maximumMarkdownHeadingDepth = 6
     public static let maximumSectionBodyBytes = 64 * 1_024
@@ -16,8 +16,25 @@ public struct OutlineParser: Sendable {
     public init() {}
 
     public func parse(_ document: SourceDocument) -> [KnowledgeEntity] {
+        parseResult(document).entities
+    }
+
+    func excludesIndexing(_ document: SourceDocument) -> Bool {
+        documentMetadata(
+            in: sourceLines(in: document.contents),
+            format: document.format
+        ).excludesIndexing
+    }
+
+    func parseResult(_ document: SourceDocument) -> SourceDocumentParseResult {
         let lines = sourceLines(in: document.contents)
         let documentMetadata = documentMetadata(in: lines, format: document.format)
+        guard !documentMetadata.excludesIndexing else {
+            return SourceDocumentParseResult(
+                entities: [],
+                wasExcludedByDocumentMetadata: true
+            )
+        }
         let sourceID = EntityID(rawValue: "source:\(document.fileURL.standardizedFileURL.path)")
         let boundedDocument = bounded(
             document.contents,
@@ -167,7 +184,10 @@ public struct OutlineParser: Sendable {
             headingStack.append((heading.level, cleanTitle, identifier))
         }
 
-        return entities
+        return SourceDocumentParseResult(
+            entities: entities,
+            wasExcludedByDocumentMetadata: false
+        )
     }
 
     private func heading(
@@ -455,11 +475,20 @@ public struct OutlineParser: Sendable {
     ) -> DocumentMetadata {
         switch format {
         case .markdown:
-            guard lines.first?.text.trimmingCharacters(in: .whitespaces) == "---",
-                  let closingOffset = lines.dropFirst().firstIndex(where: {
-                      $0.text.trimmingCharacters(in: .whitespaces) == "---"
-                  }) else {
+            guard lines.first?.text.trimmingCharacters(in: .whitespaces) == "---" else {
                 return DocumentMetadata()
+            }
+            guard let closingOffset = lines.dropFirst().firstIndex(where: {
+                $0.text.trimmingCharacters(in: .whitespaces) == "---"
+            }) else {
+                var metadata = DocumentMetadata()
+                metadata.excludesIndexing = lines.dropFirst().contains { line in
+                    guard let indexing = markdownIndexingValue(in: line.text) else {
+                        return false
+                    }
+                    return isExplicitIndexingOptOut(indexing)
+                }
+                return metadata
             }
             var metadata = DocumentMetadata()
             for line in lines[1 ..< closingOffset] {
@@ -471,6 +500,9 @@ public struct OutlineParser: Sendable {
                 } else if let date = metadataValue(named: "date", in: value),
                           isValidGregorianDate(date) {
                     metadata.dates.append(KnowledgeDate(kind: .mentioned, rawValue: date))
+                } else if let indexing = markdownIndexingValue(in: value) {
+                    metadata.excludesIndexing = metadata.excludesIndexing
+                        || isExplicitIndexingOptOut(indexing)
                 }
             }
             return metadata
@@ -488,6 +520,12 @@ public struct OutlineParser: Sendable {
                     metadata.tags.formUnion(
                         parseTags(String(value.dropFirst(11)))
                     )
+                } else if let indexing = orgKeywordValue(
+                    named: "brainsurfacer_index",
+                    in: value
+                ) ?? orgKeywordValue(named: "brainsurfacer-index", in: value) {
+                    metadata.excludesIndexing = metadata.excludesIndexing
+                        || isExplicitIndexingOptOut(indexing)
                 }
             }
             return metadata
@@ -501,6 +539,34 @@ public struct OutlineParser: Sendable {
         }
         let value = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
         return value.isEmpty ? nil : value
+    }
+
+    private func markdownIndexingValue(in line: String) -> String? {
+        let value = line.trimmingCharacters(in: .whitespaces)
+        return metadataValue(named: "brainsurfacer-index", in: value)
+            ?? metadataValue(named: "brainsurfacer_index", in: value)
+    }
+
+    private func orgKeywordValue(named name: String, in line: String) -> String? {
+        let prefix = "#+\(name):"
+        guard line.lowercased().hasPrefix(prefix) else {
+            return nil
+        }
+        let value = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+        return value.isEmpty ? nil : value
+    }
+
+    private func isExplicitIndexingOptOut(_ value: String) -> Bool {
+        var normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if normalized.count >= 2,
+           let first = normalized.first,
+           let last = normalized.last,
+           (first == "\"" && last == "\"") || (first == "'" && last == "'") {
+            normalized.removeFirst()
+            normalized.removeLast()
+        }
+        return ["false", "no", "off", "0", "nil"].contains(normalized)
     }
 
     private func parseTags(_ value: String) -> Set<String> {
@@ -628,6 +694,7 @@ public struct OutlineParser: Sendable {
                     && metadataValue(named: "tags", in: $0) == nil
                     && metadataValue(named: "date", in: $0) == nil
                     && metadataValue(named: "title", in: $0) == nil
+                    && markdownIndexingValue(in: $0) == nil
             }
         guard let first = candidates.first else {
             return nil
@@ -774,6 +841,7 @@ private extension OutlineParser {
         var title: String?
         var tags: Set<String> = []
         var dates: [KnowledgeDate] = []
+        var excludesIndexing = false
     }
 
     struct ParsedHeading {
@@ -802,4 +870,9 @@ private extension OutlineParser {
             }
         }
     }
+}
+
+struct SourceDocumentParseResult: Sendable {
+    var entities: [KnowledgeEntity]
+    var wasExcludedByDocumentMetadata: Bool
 }
