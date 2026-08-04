@@ -277,6 +277,16 @@ func documentMetadataCanExplicitlyOptOutOfIndexing() {
             * Private
             This must not be indexed.
             """
+        ),
+        SourceDocument(
+            fileURL: URL(fileURLWithPath: "/tmp/Unterminated.md"),
+            format: .markdown,
+            contents: """
+            ---
+            title: Malformed front matter
+            brainsurfacer-index: 'OFF'
+            # Still private despite the missing closing fence
+            """
         )
     ]
 
@@ -313,6 +323,16 @@ func indexingOptOutRequiresNamespacedDocumentMetadata() {
             contents: """
             * Still visible
             #+BRAINSURFACER_INDEX: false
+            """
+        ),
+        SourceDocument(
+            fileURL: URL(fileURLWithPath: "/tmp/UnterminatedVisible.md"),
+            format: .markdown,
+            contents: """
+            ---
+            index: false
+            brainsurfacer-index: true
+            # Still visible
             """
         )
     ]

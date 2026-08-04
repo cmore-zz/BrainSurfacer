@@ -109,14 +109,17 @@ front matter, or `#+BRAINSURFACER_INDEX: false` (or the hyphen spelling) in an
 Org preamble before the first heading. The values `false`, `no`, `off`, `0`, and
 `nil` are explicit opt-outs, case-insensitively; generic `index` keys and
 directive-like body text have no effect. An opted-out file emits no document,
-section, task, catalog, or platform entities. Its resource fingerprint records
-the exclusion without content, so unchanged opted-out files need not be read on
-later scans. Removing the directive invalidates the resource fingerprint,
-reparses the file, and restores its entities. The parser-output revision was
-advanced when this contract was introduced so existing unchanged documents are
-examined for the new directive once. A valid directive is checked separately
-when later body bytes are malformed UTF-8, so explicit revocation takes
-precedence over the normal last-known-good retention policy.
+section, task, catalog, or platform entities. If a Markdown document starts a
+front-matter block but omits its closing fence, an otherwise valid namespaced
+opt-out is still honored; other metadata in that malformed block remains
+ignored. Its resource fingerprint records the exclusion without content, so
+unchanged opted-out files need not be read on later scans. Removing the
+directive invalidates the resource fingerprint, reparses the file, and restores
+its entities. The parser-output revision was advanced when this contract was
+introduced so existing unchanged documents are examined for the new directive
+once. A valid directive is checked separately when later body bytes are
+malformed UTF-8, so explicit revocation takes precedence over the normal
+last-known-good retention policy.
 
 ### Core
 

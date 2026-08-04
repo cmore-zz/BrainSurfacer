@@ -475,11 +475,20 @@ public struct OutlineParser: Sendable {
     ) -> DocumentMetadata {
         switch format {
         case .markdown:
-            guard lines.first?.text.trimmingCharacters(in: .whitespaces) == "---",
-                  let closingOffset = lines.dropFirst().firstIndex(where: {
-                      $0.text.trimmingCharacters(in: .whitespaces) == "---"
-                  }) else {
+            guard lines.first?.text.trimmingCharacters(in: .whitespaces) == "---" else {
                 return DocumentMetadata()
+            }
+            guard let closingOffset = lines.dropFirst().firstIndex(where: {
+                $0.text.trimmingCharacters(in: .whitespaces) == "---"
+            }) else {
+                var metadata = DocumentMetadata()
+                metadata.excludesIndexing = lines.dropFirst().contains { line in
+                    guard let indexing = markdownIndexingValue(in: line.text) else {
+                        return false
+                    }
+                    return isExplicitIndexingOptOut(indexing)
+                }
+                return metadata
             }
             var metadata = DocumentMetadata()
             for line in lines[1 ..< closingOffset] {
@@ -491,10 +500,7 @@ public struct OutlineParser: Sendable {
                 } else if let date = metadataValue(named: "date", in: value),
                           isValidGregorianDate(date) {
                     metadata.dates.append(KnowledgeDate(kind: .mentioned, rawValue: date))
-                } else if let indexing = metadataValue(
-                    named: "brainsurfacer-index",
-                    in: value
-                ) ?? metadataValue(named: "brainsurfacer_index", in: value) {
+                } else if let indexing = markdownIndexingValue(in: value) {
                     metadata.excludesIndexing = metadata.excludesIndexing
                         || isExplicitIndexingOptOut(indexing)
                 }
@@ -533,6 +539,12 @@ public struct OutlineParser: Sendable {
         }
         let value = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
         return value.isEmpty ? nil : value
+    }
+
+    private func markdownIndexingValue(in line: String) -> String? {
+        let value = line.trimmingCharacters(in: .whitespaces)
+        return metadataValue(named: "brainsurfacer-index", in: value)
+            ?? metadataValue(named: "brainsurfacer_index", in: value)
     }
 
     private func orgKeywordValue(named name: String, in line: String) -> String? {
@@ -682,6 +694,7 @@ public struct OutlineParser: Sendable {
                     && metadataValue(named: "tags", in: $0) == nil
                     && metadataValue(named: "date", in: $0) == nil
                     && metadataValue(named: "title", in: $0) == nil
+                    && markdownIndexingValue(in: $0) == nil
             }
         guard let first = candidates.first else {
             return nil
