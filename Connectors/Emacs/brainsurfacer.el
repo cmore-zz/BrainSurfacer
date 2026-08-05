@@ -362,39 +362,48 @@ document-count and decoded-path-byte limits enforced by the helper."
         (when (buffer-live-p buffer)
           (kill-buffer buffer))))))
 
+(defun brainsurfacer--helper-arguments ()
+  "Return helper arguments targeting the discovered application bundle."
+  (append
+   (when-let* ((application
+                (plist-get brainsurfacer--discovery-cache :application)))
+     (list "--application" application))
+   '("--input" "-")))
+
 (defun brainsurfacer--send-payload (payload &optional synchronous)
   "Send PAYLOAD through a discovered helper.
 
 When SYNCHRONOUS is non-nil, wait for completion.  Return non-nil when a helper
 was invoked."
   (when-let* ((command (brainsurfacer--discover-helper)))
-    (condition-case error-data
-        (progn
-          (if synchronous
-              (with-temp-buffer
-                (insert payload)
-                (unless (zerop
-                         (call-process-region
-                          (point-min) (point-max) command nil nil nil
-                          "--input" "-"))
-                  (error "BrainSurfacer context helper failed")))
-            (let* ((buffer (generate-new-buffer " *brainsurfacer-context*"))
-                   (process
-                    (make-process
-                     :name "brainsurfacer-context"
-                     :buffer buffer
-                     :command (list command "--input" "-")
-                     :connection-type 'pipe
-                     :noquery t
-                     :sentinel #'brainsurfacer--process-sentinel)))
-              (process-send-string process payload)
-              (process-send-eof process)))
-          t)
-      (error
-       (setq brainsurfacer--last-error (error-message-string error-data)
-             brainsurfacer--last-payload nil
-             brainsurfacer--discovery-cache nil)
-       nil))))
+    (let ((arguments (brainsurfacer--helper-arguments)))
+      (condition-case error-data
+          (progn
+            (if synchronous
+                (with-temp-buffer
+                  (insert payload)
+                  (unless (zerop
+                           (apply #'call-process-region
+                                  (point-min) (point-max) command nil nil nil
+                                  arguments))
+                    (error "BrainSurfacer context helper failed")))
+              (let* ((buffer (generate-new-buffer " *brainsurfacer-context*"))
+                     (process
+                      (make-process
+                       :name "brainsurfacer-context"
+                       :buffer buffer
+                       :command (cons command arguments)
+                       :connection-type 'pipe
+                       :noquery t
+                       :sentinel #'brainsurfacer--process-sentinel)))
+                (process-send-string process payload)
+                (process-send-eof process)))
+            t)
+        (error
+         (setq brainsurfacer--last-error (error-message-string error-data)
+               brainsurfacer--last-payload nil
+               brainsurfacer--discovery-cache nil)
+         nil)))))
 
 (defun brainsurfacer--send-snapshot (&optional force)
   "Send current editor state when it changed, or unconditionally with FORCE."

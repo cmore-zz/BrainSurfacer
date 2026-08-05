@@ -30,6 +30,11 @@ an ordinary buffer change does not launch the app. Automatic discovery assumes
 the local process table is trustworthy; it does not perform a code-signature
 identity check.
 
+Each helper invocation also receives that exact application bundle path. The
+helper targets it with `open -a` instead of asking Launch Services to choose
+among every installed or DerivedData copy registered for the `brainsurfacer`
+URL scheme.
+
 For an unusual installation, set `brainsurfacer-command` to an absolute helper
 path or executable name. Set `brainsurfacer-require-running-app` to `nil` only
 if editor activity should be allowed to launch BrainSurfacer.

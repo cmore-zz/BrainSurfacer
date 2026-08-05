@@ -59,6 +59,10 @@ should be stable and specific to the connector.
 For development and protocol inspection, `--print-url` prints the handoff URL
 without opening BrainSurfacer.
 
+`--application /path/to/BrainSurfacer.app` directs the handoff URL to that exact
+bundle with `open -a`. Without it, the standalone helper retains generic URL
+scheme dispatch for compatibility.
+
 The macOS application target builds the same helper implementation and embeds
 it at `BrainSurfacer.app/Contents/Helpers/brainsurfacer-context`, giving editor
 connectors a stable path in installed, renamed, and Xcode Debug app bundles.
@@ -83,8 +87,10 @@ By default the package scans full process command lines for a running
 `*.app/Contents/MacOS/BrainSurfacer`, derives that bundle's helper path, and
 caches positive or negative discovery for ten seconds. A cached running app is
 validated through its process ID without another `ps` scan. It does nothing
-while the app is absent. An explicit helper setting and opt-in launch-on-context
-mode cover unusual installations. See the
+while the app is absent. The discovered bundle is passed back to the helper so
+Launch Services targets that copy rather than choosing another installed or
+DerivedData build. An explicit helper setting and opt-in launch-on-context mode
+cover unusual installations. See the
 [Emacs connector guide](../Connectors/Emacs/README.md) for setup, customization,
 diagnostics, tests, and current limitations.
 

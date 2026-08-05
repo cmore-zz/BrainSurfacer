@@ -203,6 +203,19 @@
       (should-not (brainsurfacer--discover-helper))
       (should (= calls 1)))))
 
+(ert-deftest brainsurfacer-helper-targets-discovered-application ()
+  (let ((brainsurfacer--discovery-cache
+         '(:application "/Build Products/BrainSurfacer Debug.app")))
+    (should
+     (equal
+      (brainsurfacer--helper-arguments)
+      '("--application" "/Build Products/BrainSurfacer Debug.app"
+        "--input" "-")))))
+
+(ert-deftest brainsurfacer-helper-allows-standalone-dispatch ()
+  (let ((brainsurfacer--discovery-cache nil))
+    (should (equal (brainsurfacer--helper-arguments) '("--input" "-")))))
+
 (ert-deftest brainsurfacer-mode-installs-file-window-and-focus-hooks ()
   (brainsurfacer-mode -1)
   (let ((after-focus-change-function #'ignore)

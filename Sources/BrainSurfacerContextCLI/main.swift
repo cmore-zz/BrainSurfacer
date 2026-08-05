@@ -21,7 +21,7 @@ struct BrainSurfacerContextCommand {
 
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            process.arguments = ["-g", url.absoluteString]
+            process.arguments = arguments.openArguments(for: url)
             try process.run()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else {
@@ -40,19 +40,22 @@ private struct Arguments {
     static let usage = """
     Usage:
       brainsurfacer-context --provider ID [--ttl SECONDS]
-        [--selected PATH] [--visible PATH] [--open PATH] [--print-url]
-      brainsurfacer-context --input FILE [--print-url]
+        [--selected PATH] [--visible PATH] [--open PATH]
+        [--application APP] [--print-url]
+      brainsurfacer-context --input FILE [--application APP] [--print-url]
 
     Send a complete, expiring editor snapshot to BrainSurfacer. Repeat document
     flags as needed, or read grouped path arrays from a JSON file. Use --input -
     to read bounded JSON from standard input. Sending no documents clears that
-    provider's live context.
+    provider's live context. Use --application to target an exact app bundle
+    instead of asking Launch Services to choose a URL-scheme handler.
     """
 
     var providerID = ""
     var timeToLive = EditorContextUpdate.defaultTimeToLive
     var documents: [EditorContextDocument] = []
     var inputPath: String?
+    var applicationPath: String?
     var onlyPrintsURL = false
     var showsHelp = false
     private var hasProviderOption = false
@@ -85,6 +88,13 @@ private struct Arguments {
                 index += 2
             case "--input":
                 inputPath = try Self.value(after: argument, in: arguments, at: index)
+                index += 2
+            case "--application":
+                applicationPath = try Self.value(
+                    after: argument,
+                    in: arguments,
+                    at: index
+                )
                 index += 2
             case "--selected", "--visible", "--open":
                 let value = try Self.value(after: argument, in: arguments, at: index)
@@ -140,6 +150,15 @@ private struct Arguments {
         }
         let context = try EditorContextInput.decodeJSON(input)
         return try context.update(relativeTo: baseDirectory)
+    }
+
+    func openArguments(for url: URL) -> [String] {
+        var result = ["-g"]
+        if let applicationPath {
+            result.append(contentsOf: ["-a", applicationPath])
+        }
+        result.append(url.absoluteString)
+        return result
     }
 
     private static func value(
