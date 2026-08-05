@@ -50,7 +50,8 @@ invariants.
 - Add an App Intent open action for every persistent entity.
 - Route durable entity deep links through configurable Emacs, Obsidian, and
   `NSWorkspace` openers while preserving the closest supported anchor.
-- Add a system in-app search intent that presents BrainSurfacer's search UI.
+- Add a beta-4 system `searchInApp` App Schema intent that presents
+  BrainSurfacer's search UI. *(implemented)*
 - Make Spotlight, Siri, and in-app results share one resolution and opening
   path.
 
@@ -95,6 +96,14 @@ invariants.
   Entity identity. *(implemented)*
 - Report Emacs file-visiting Org/Markdown selected, visible, and open buffers
   through a debounced, expiring connector. *(implemented)*
+- Persist only accepted path-only context through its original TTL and expose
+  resolved current documents through a transient, read-only App Intent.
+  *(implemented)*
+- Add explicit Siri phrases for current context and bounded note content/source
+  retrieval. *(implemented)*
+- Publish one bounded, expiring semantic summary of current editor state for
+  sources enrolled in Apple discovery, because macOS 27 beta 4 has no Assistant
+  Schema for selected/visible/open documents. *(implemented)*
 - Extend Emacs context to Org Agenda, capture, narrowed subtree, heading, and
   selection anchors.
 - Implement Obsidian visible/working-set reporting.

@@ -20,7 +20,9 @@ makes four distinctions explicit:
    headings, tasks, projects, people, links, and relationships.
 2. **Permanent knowledge and live context have different lifecycles.** Parsed
    entities are indexed until their source changes or disappears. Visible and
-   working-set entities expire quickly and only affect relevance/context.
+   working-set context expires quickly; when Apple discovery is enabled it may
+   also produce one aggregate semantic record whose expiry never exceeds the
+   earliest included context signal.
 3. **Plugins report context; core owns policy.** Editor connectors may discover
    sources, report visible/adjacent items, and open targets. They do not write
    directly to Spotlight or choose global ranking.
@@ -240,10 +242,15 @@ The first cross-process connector contract is a versioned, bounded
 visible, or open. A small command-line bridge delivers the snapshot through a
 local custom URL. The app validates its version, age, expiration, shape, and
 size, then discards every anchor outside a currently enrolled source before
-passing it to `ContextCoordinator`. Updates live only in memory and an empty
-snapshot clears the provider. The custom-URL payload is URL-safe base64, not
-encryption, and it does not authenticate the sender; authenticated streaming
-IPC remains a later transport improvement.
+passing it to `ContextCoordinator`. The accepted path-only snapshots are also
+atomically persisted in a separate transient store so a background App Intent
+or an app relaunch can recover them for no longer than the provider-supplied
+TTL. The store never copies document content and an empty snapshot clears the
+provider. Intent execution resolves the still-live anchors against the current
+catalog and bounds the returned item count and excerpts. This does not donate
+the working set to Spotlight or extend its lifetime. The custom-URL payload is
+URL-safe base64, not encryption, and it does not authenticate the sender;
+authenticated streaming IPC remains a later transport improvement.
 
 ### Apple platform
 
@@ -315,8 +322,9 @@ loads the same configurable enrollment store used by source management,
 refreshes stale saved bookmarks, selects the most-specific enrolled parent
 directory, and holds its security-scoped access for the complete operation.
 This makes the same sandbox permission available to UI and App Intent opens
-without keeping source roots permanently active. The system
-`ShowInAppSearchResultsIntent`
+without keeping source roots permanently active. The macOS 27 system-search
+App Schema, `@AppIntent(schema: .system.searchInApp)`, together with
+`ShowInAppSearchResultsIntent`,
 persists its term long enough for app launch and presents the same
 Spotlight-backed Index search UI; an in-process notification handles an
 already-running app.
@@ -333,8 +341,18 @@ architecture therefore does not equate live editor context with
 `RelevantEntities`. BrainSurfacer annotates rows in its own Live Context UI with
 the existing Spotlight App Entity identity, using the SDK's onscreen entity
 annotation APIs. It cannot annotate UI owned by Emacs or Obsidian. Working
-context can feed in-app ranking and future suggestions or donations while the
-adapter evolves with the SDK.
+context feeds in-app ranking and an explicit background App Intent that returns
+up to twenty transient current-document entities. Each result carries a bounded
+content excerpt, source URL, relevance, provider provenance, and open URL.
+Because the result entity conforms to `TransientAppEntity`, it cannot be
+resolved later as durable context after the connector TTL expires.
+
+An additional read intent accepts the durable Notes-schema entity and returns a
+bounded textual value containing the note title, source path, and content. App
+Shortcuts declared in the application target give both read paths explicit Siri
+phrases. These actions make content access an invoked capability rather than an
+assumption about how Siri interprets Spotlight metadata; they do not change
+permanent index enrollment or discovery scope.
 
 ### Plugins and openers
 
@@ -402,7 +420,8 @@ Tests should emphasize invariants:
 
 - one source can yield multiple related entities;
 - replacing a source removes stale identifiers;
-- live context never becomes permanent without explicit policy;
+- live context never becomes permanent, and its expiring Apple projection only
+  includes entities whose sources explicitly allow Apple discovery;
 - adapters preserve stable identifiers and source URLs;
 - parser failures do not destroy the last known good index;
 - opening an entity retains the most precise available source anchor.
