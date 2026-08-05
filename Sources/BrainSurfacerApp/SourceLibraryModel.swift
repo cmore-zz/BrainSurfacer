@@ -60,7 +60,7 @@ final class SourceLibraryModel {
         fingerprintStore: SourceFingerprintStore = SourceFingerprintStore(),
         entitySearch: (any EntitySearch)? = nil,
         sourceObserver: FSEventsSourceObserver = FSEventsSourceObserver(),
-        contextPublisher: any ContextPublisher = SpotlightLiveContextIndex()
+        contextPublisher: (any ContextPublisher)? = nil
     ) {
         self.store = store
         self.sourceObserver = sourceObserver
@@ -91,6 +91,7 @@ final class SourceLibraryModel {
         contextCoordinator = ContextCoordinator(catalog: catalog)
         contextSnapshotStore = PersistentContextSnapshotStore()
         self.contextPublisher = contextPublisher
+            ?? SpotlightLiveContextIndex(catalog: catalog)
         sourceChangeCoalescer = SourceChangeCoalescer { [weak self] sourceURLs in
             await self?.reconcileChangedSources(sourceURLs)
         }
