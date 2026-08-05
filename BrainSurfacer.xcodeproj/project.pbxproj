@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 71;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -190,6 +190,7 @@
 			packageReferences = (
 				B00000000000000000000001 /* XCLocalSwiftPackageReference "." */,
 			);
+			preferredProjectObjectVersion = 77;
 			productRefGroup = 400000000000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -364,7 +365,6 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = SD9C3FXDKZ;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -394,7 +394,6 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = SD9C3FXDKZ;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -480,7 +479,7 @@
 /* Begin XCLocalSwiftPackageReference section */
 		B00000000000000000000001 /* XCLocalSwiftPackageReference "." */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = .;
+			relativePath = ".";
 		};
 /* End XCLocalSwiftPackageReference section */
 

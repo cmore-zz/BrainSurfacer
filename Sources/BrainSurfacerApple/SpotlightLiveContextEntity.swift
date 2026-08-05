@@ -259,14 +259,9 @@ enum SpotlightLiveContextResolver {
         from context: CurrentContext,
         catalog: any EntityCatalog
     ) async throws -> SpotlightLiveContextEntity? {
-        let eligibleIdentifiers = Set(
-            try await catalog.permanentlyIndexedEntities().map(\.id)
-        )
-        let eligibleContext = CurrentContext(
-            resolved: context.resolved.filter {
-                eligibleIdentifiers.contains($0.entity.id)
-            },
-            unresolved: []
+        let eligibleContext = try await AppleDiscoveryContextFilter.eligibleContext(
+            from: context,
+            catalog: catalog
         )
         return SpotlightLiveContextEntity(eligibleContext)
     }

@@ -109,7 +109,10 @@ enum BrainSurfacerIntentContext {
         for snapshot in await snapshotStore.snapshots(at: date) {
             await coordinator.ingest(snapshot)
         }
-        let context = try await coordinator.currentContext(at: date)
+        let context = try await AppleDiscoveryContextFilter.eligibleContext(
+            from: coordinator.currentContext(at: date),
+            catalog: catalog
+        )
         return context.resolved.prefix(maximumItemCount).map(
             BrainSurfacerContextItemEntity.init
         )

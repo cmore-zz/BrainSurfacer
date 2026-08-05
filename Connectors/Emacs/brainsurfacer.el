@@ -443,7 +443,12 @@ was invoked."
 
 (defun brainsurfacer--heartbeat ()
   "Refresh the current snapshot before its TTL expires."
-  (brainsurfacer--schedule t))
+  (brainsurfacer--send-snapshot t))
+
+(defun brainsurfacer--heartbeat-interval ()
+  "Return a refresh interval safely shorter than the configured TTL."
+  (max 0.5
+       (/ (float (brainsurfacer--normalized-time-to-live)) 2.0)))
 
 (defun brainsurfacer--install-hooks ()
   "Install available state hooks globally."
@@ -465,9 +470,7 @@ was invoked."
   "Start the TTL refresh timer."
   (when (timerp brainsurfacer--heartbeat-timer)
     (cancel-timer brainsurfacer--heartbeat-timer))
-  (let ((interval
-         (max 1.0
-              (/ (float (brainsurfacer--normalized-time-to-live)) 2.0))))
+  (let ((interval (brainsurfacer--heartbeat-interval)))
     (setq brainsurfacer--heartbeat-timer
           (run-at-time interval interval #'brainsurfacer--heartbeat))))
 

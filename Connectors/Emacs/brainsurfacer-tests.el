@@ -119,6 +119,20 @@
       (should (= (alist-get 'timeToLive decoded) (cadr case)))
       (should (= (brainsurfacer--normalized-time-to-live) (cadr case))))))
 
+(ert-deftest brainsurfacer-heartbeat-refreshes-before-minimum-ttl ()
+  (let ((brainsurfacer-time-to-live 1)
+        (brainsurfacer-mode t)
+        sent-force)
+    (should (= (brainsurfacer--heartbeat-interval) 0.5))
+    (cl-letf (((symbol-function 'brainsurfacer--send-snapshot)
+               (lambda (&optional force)
+                 (setq sent-force force)))
+              ((symbol-function 'brainsurfacer--schedule)
+               (lambda (&rest _arguments)
+                 (ert-fail "Heartbeat must bypass the debounce timer"))))
+      (brainsurfacer--heartbeat)
+      (should sent-force))))
+
 (ert-deftest brainsurfacer-finds-running-app-bundles-with-spaces ()
   (should
    (equal
