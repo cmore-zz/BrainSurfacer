@@ -89,8 +89,10 @@ caches positive or negative discovery for ten seconds. A cached running app is
 validated through its process ID without another `ps` scan. It does nothing
 while the app is absent. The discovered bundle is passed back to the helper so
 Launch Services targets that copy rather than choosing another installed or
-DerivedData build. An explicit helper setting and opt-in launch-on-context mode
-cover unusual installations. See the
+DerivedData build. BrainSurfacer uses a unique application window, so repeated
+replacement snapshots are delivered to the existing UI instead of creating a
+new window for every editor change. An explicit helper setting and opt-in
+launch-on-context mode cover unusual installations. See the
 [Emacs connector guide](../Connectors/Emacs/README.md) for setup, customization,
 diagnostics, tests, and current limitations.
 
