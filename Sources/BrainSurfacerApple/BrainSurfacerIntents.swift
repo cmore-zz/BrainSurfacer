@@ -39,9 +39,11 @@ public struct OpenSpotlightNoteIntent: OpenIntent {
     }
 }
 
+@AppIntent(schema: .system.searchInApp)
 public struct ShowBrainSurfacerSearchIntent: ShowInAppSearchResultsIntent {
     public static let title: LocalizedStringResource = "Search BrainSurfacer"
     public static let supportedModes: IntentModes = .foreground(.immediate)
+    public static let searchScopes: [StringSearchScope] = [.general]
 
     @Parameter(title: "Search") public var criteria: StringSearchCriteria
 

@@ -220,6 +220,7 @@ public actor SpotlightEntityIndex: PermanentEntityIndex {
         do {
             try await index.deleteAppEntities(ofType: SpotlightKnowledgeEntity.self)
             try await index.deleteAppEntities(ofType: SpotlightNoteEntity.self)
+            try await index.deleteAppEntities(ofType: SpotlightLiveContextEntity.self)
             try projectionVersionStore.markCurrent(
                 version: SpotlightProjection.schemaVersion
             )
@@ -240,6 +241,7 @@ public actor SpotlightEntityIndex: PermanentEntityIndex {
         if projectionVersionStore.storedVersion() != SpotlightProjection.schemaVersion {
             try await index.deleteAppEntities(ofType: SpotlightKnowledgeEntity.self)
             try await index.deleteAppEntities(ofType: SpotlightNoteEntity.self)
+            try await index.deleteAppEntities(ofType: SpotlightLiveContextEntity.self)
             try projectionVersionStore.markCurrent(
                 version: SpotlightProjection.schemaVersion
             )

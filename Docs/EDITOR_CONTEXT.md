@@ -59,6 +59,48 @@ should be stable and specific to the connector.
 For development and protocol inspection, `--print-url` prints the handoff URL
 without opening BrainSurfacer.
 
+`--application /path/to/BrainSurfacer.app` directs the handoff URL to that exact
+bundle with `open -a`. Without it, the standalone helper retains generic URL
+scheme dispatch for compatibility.
+
+The macOS application target builds the same helper implementation and embeds
+it at `BrainSurfacer.app/Contents/Helpers/brainsurfacer-context`, giving editor
+connectors a stable path in installed, renamed, and Xcode Debug app bundles.
+
+## Emacs connector
+
+The initial Emacs package is a single
+[`brainsurfacer.el`](../Connectors/Emacs/brainsurfacer.el) global minor mode. It
+uses the editing mode—not the filename extension—to accept file-visiting
+buffers derived from `org-mode` or `markdown-mode`. The selected editor window,
+other windows on visible frames, and remaining eligible buffers become the
+selected, visible, and open groups respectively. Remote/TRAMP buffers are
+omitted because the app cannot resolve their editor-local paths.
+
+File visits, major-mode and visited-file changes, buffer closure, window/frame
+state, server visits, and focus changes schedule a complete snapshot through a
+short debounce. JSON is written directly to the helper's standard input. A TTL
+heartbeat preserves unchanged context, while disabling the mode or exiting
+Emacs clears it.
+
+By default the package scans full process command lines for a running
+`*.app/Contents/MacOS/BrainSurfacer`, derives that bundle's helper path, and
+caches positive or negative discovery for ten seconds. A cached running app is
+validated through its process ID without another `ps` scan. It does nothing
+while the app is absent. The discovered bundle is passed back to the helper so
+Launch Services targets that copy rather than choosing another installed or
+DerivedData build. BrainSurfacer uses a unique application window, so repeated
+replacement snapshots are delivered to the existing UI instead of creating a
+new window for every editor change. An explicit helper setting and opt-in
+launch-on-context mode cover unusual installations. See the
+[Emacs connector guide](../Connectors/Emacs/README.md) for setup, customization,
+diagnostics, tests, and current limitations.
+
+Editor context and indexing remain separate decisions. A file opened in
+`org-mode` can be reported even when its extension is not currently parsed, but
+the connector cannot enroll or index it. It remains unresolved unless the
+BrainSurfacer catalog already contains a canonical entity for that source.
+
 ## Consent and lifetime
 
 - A snapshot carries source anchors and relevance labels, never document

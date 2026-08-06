@@ -1,6 +1,24 @@
+import BrainSurfacerCore
 import BrainSurfacerModel
 import CryptoKit
 import Foundation
+
+enum AppleDiscoveryContextFilter {
+    static func eligibleContext(
+        from context: CurrentContext,
+        catalog: any EntityCatalog
+    ) async throws -> CurrentContext {
+        let eligibleIdentifiers = Set(
+            try await catalog.permanentlyIndexedEntities().map(\.id)
+        )
+        return CurrentContext(
+            resolved: context.resolved.filter {
+                eligibleIdentifiers.contains($0.entity.id)
+            },
+            unresolved: []
+        )
+    }
+}
 
 enum SpotlightProjection {
     static let schemaVersion = 4

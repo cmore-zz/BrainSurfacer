@@ -69,8 +69,11 @@ same Index UI and query flow. A versioned command-line bridge now accepts
 complete, expiring selected/visible/open document snapshots from local editor
 connectors. Only anchors under enrolled sources are accepted; the snapshots
 remain in memory, rerank matched local results, and appear in an App
-Entity-annotated Live Context view. Editor-specific Emacs and Obsidian reporters
-and an authenticated streaming transport are still ahead. See
+Entity-annotated Live Context view. A single-file
+[Emacs connector](Connectors/Emacs/README.md) now reports file-visiting Org and
+Markdown selected, visible, and open buffers through the helper embedded in the
+app bundle; deeper Org heading/Agenda context and the Obsidian reporter remain
+ahead, as does an authenticated streaming transport. See
 [Live editor context](Docs/EDITOR_CONTEXT.md) for the connector contract and
 privacy boundary. SDK-specific findings are recorded in
 [Platform probes](Docs/PLATFORM_PROBES.md).
@@ -88,6 +91,8 @@ For a normal macOS application bundle, open `BrainSurfacer.xcodeproj`, select
 the shared **BrainSurfacer** scheme and **My Mac**, then Run. The Swift package
 remains the source of the library modules and command-line test workflow; the
 Xcode application target supplies the launchable `.app`.
+Its build also embeds `brainsurfacer-context` under `Contents/Helpers` for local
+editor connectors.
 
 See [Architecture](Docs/ARCHITECTURE.md) for the reconciled design and
 [Roadmap](Docs/ROADMAP.md) for the next vertical slices.

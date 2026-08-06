@@ -122,6 +122,126 @@ func noteProjectionUsesNotesSchemaAndItsOwnSearchDomain() {
 }
 
 @Test
+func liveContextProjectionIsSemanticAndExpiresAtItsEarliestSignal() throws {
+    let now = Date(timeIntervalSince1970: 40_000)
+    let earlierExpiration = now.addingTimeInterval(30)
+    let laterExpiration = now.addingTimeInterval(60)
+    let selected = KnowledgeEntity(
+        id: EntityID(rawValue: "selected-note"),
+        kind: .note,
+        title: "Selected note",
+        body: "A selected note excerpt.",
+        source: SourceAnchor(fileURL: URL(fileURLWithPath: "/Notes/Selected.md"))
+    )
+    let open = KnowledgeEntity(
+        id: EntityID(rawValue: "open-note"),
+        kind: .note,
+        title: "Open note",
+        source: SourceAnchor(fileURL: URL(fileURLWithPath: "/Notes/Open.org"))
+    )
+    let context = CurrentContext(
+        resolved: [
+            ResolvedContextItem(
+                entity: selected,
+                signals: [
+                    ContextSignal(
+                        providerID: "org.gnu.Emacs",
+                        relevance: .selected,
+                        observedAt: now,
+                        expiresAt: earlierExpiration
+                    )
+                ],
+                score: 120
+            ),
+            ResolvedContextItem(
+                entity: open,
+                signals: [
+                    ContextSignal(
+                        providerID: "org.gnu.Emacs",
+                        relevance: .open,
+                        observedAt: now,
+                        expiresAt: laterExpiration
+                    )
+                ],
+                score: 80
+            )
+        ],
+        unresolved: []
+    )
+
+    let projection = try #require(SpotlightLiveContextEntity(context))
+    let searchableItem = SpotlightLiveContextEntity.searchableItem(for: projection)
+
+    #expect(projection.summary.contains("Selected note (selected, Selected.md)"))
+    #expect(projection.summary.contains("Open note (open, Open.org)"))
+    #expect(projection.text.contains("A selected note excerpt."))
+    #expect(projection.keywords.contains("open files"))
+    #expect(projection.expirationDate == earlierExpiration)
+    #expect(searchableItem.expirationDate == earlierExpiration)
+    #expect(
+        searchableItem.domainIdentifier
+            == SpotlightLiveContextEntity.searchDomainIdentifier
+    )
+}
+
+@Test
+func liveContextProjectionExcludesLocalOnlyEntities() async throws {
+    let sharedURL = URL(fileURLWithPath: "/Notes/Shared.md")
+    let privateURL = URL(fileURLWithPath: "/Private/Local.md")
+    let shared = KnowledgeEntity(
+        id: EntityID(rawValue: "shared"),
+        kind: .note,
+        title: "Shared note",
+        source: SourceAnchor(fileURL: sharedURL)
+    )
+    let local = KnowledgeEntity(
+        id: EntityID(rawValue: "local"),
+        kind: .note,
+        title: "Local-only note",
+        source: SourceAnchor(fileURL: privateURL)
+    )
+    let catalog = InMemoryEntityCatalog()
+    _ = try await catalog.replaceEntities(
+        from: sharedURL,
+        with: [shared],
+        includeInPermanentIndex: true
+    )
+    _ = try await catalog.replaceEntities(
+        from: privateURL,
+        with: [local],
+        includeInPermanentIndex: false
+    )
+    let expiration = Date.distantFuture
+    let context = CurrentContext(
+        resolved: [shared, local].map { entity in
+            ResolvedContextItem(
+                entity: entity,
+                signals: [
+                    ContextSignal(
+                        providerID: "org.gnu.Emacs",
+                        relevance: .open,
+                        observedAt: .now,
+                        expiresAt: expiration
+                    )
+                ],
+                score: 80
+            )
+        },
+        unresolved: []
+    )
+
+    let projection = try #require(
+        try await SpotlightLiveContextResolver.entity(
+            from: context,
+            catalog: catalog
+        )
+    )
+
+    #expect(projection.text.contains("Shared note"))
+    #expect(!projection.text.contains("Local-only note"))
+}
+
+@Test
 func spotlightSearchResultPreservesDisplayMetadata() {
     let attributes = CSSearchableItemAttributeSet()
     attributes.title = "Search result"

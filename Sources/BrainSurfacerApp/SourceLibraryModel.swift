@@ -46,6 +46,8 @@ final class SourceLibraryModel {
     private let entitySearch: any EntitySearch
     private let openingCoordinator: EntityOpeningCoordinator
     private let contextCoordinator: ContextCoordinator
+    private let contextSnapshotStore: PersistentContextSnapshotStore
+    private let contextPublisher: any ContextPublisher
     private let sourceObserver: FSEventsSourceObserver
     private var sourceChangeSubscription: SourceChangeSubscription?
     private var sourceObservationTask: Task<Void, Never>?
@@ -57,7 +59,8 @@ final class SourceLibraryModel {
         scanner: SourceDirectoryScanner = SourceDirectoryScanner(),
         fingerprintStore: SourceFingerprintStore = SourceFingerprintStore(),
         entitySearch: (any EntitySearch)? = nil,
-        sourceObserver: FSEventsSourceObserver = FSEventsSourceObserver()
+        sourceObserver: FSEventsSourceObserver = FSEventsSourceObserver(),
+        contextPublisher: (any ContextPublisher)? = nil
     ) {
         self.store = store
         self.sourceObserver = sourceObserver
@@ -86,11 +89,18 @@ final class SourceLibraryModel {
             openers: [ConfiguredDocumentOpener(accessProvider: store)]
         )
         contextCoordinator = ContextCoordinator(catalog: catalog)
+        contextSnapshotStore = PersistentContextSnapshotStore()
+        self.contextPublisher = contextPublisher
+            ?? SpotlightLiveContextIndex(catalog: catalog)
         sourceChangeCoalescer = SourceChangeCoalescer { [weak self] sourceURLs in
             await self?.reconcileChangedSources(sourceURLs)
         }
         Task {
             sources = await store.load()
+            for snapshot in await contextSnapshotStore.snapshots() {
+                await contextCoordinator.ingest(snapshot)
+            }
+            try? await refreshCurrentContext()
             restartSourceObservation()
             isLoading = false
             await reindexAll()
@@ -137,6 +147,13 @@ final class SourceLibraryModel {
                 indexStatusBySource.removeValue(forKey: source.id)
             } catch {
                 errorMessage = "The source was removed, but its Spotlight entries couldn’t be deleted: \(error.localizedDescription)"
+                return
+            }
+            do {
+                try await refreshCurrentContext()
+            } catch {
+                errorMessage = "The source was removed, but BrainSurfacer couldn’t "
+                    + "refresh live context: \(error.localizedDescription)"
             }
         }
     }
@@ -216,6 +233,12 @@ final class SourceLibraryModel {
                 diagnosticCount: result.diagnostics.count,
                 indexedAt: Date()
             )
+            do {
+                try await refreshCurrentContext()
+            } catch {
+                errorMessage = "BrainSurfacer indexed \(source.url.lastPathComponent) "
+                    + "but couldn’t refresh live context: \(error.localizedDescription)"
+            }
             return true
         } catch {
             var status = indexStatusBySource[source.id, default: SourceIndexStatus()]
@@ -244,6 +267,7 @@ final class SourceLibraryModel {
                 documents: acceptedDocuments
             )
             let snapshot = try acceptedUpdate.contextSnapshot()
+            try await contextSnapshotStore.replace(snapshot)
             await contextCoordinator.ingest(snapshot)
 
             let rejectedCount = update.documents.count - acceptedDocuments.count
@@ -261,12 +285,19 @@ final class SourceLibraryModel {
 
     func refreshCurrentContext() async throws {
         currentContext = try await contextCoordinator.currentContext()
+        do {
+            try await contextPublisher.publish(currentContext)
+        } catch {
+            errorMessage = "BrainSurfacer refreshed live context but couldn’t publish "
+                + "its expiring Spotlight summary: \(error.localizedDescription)"
+        }
     }
 
     func removeContextProvider(_ providerID: String) async {
         await contextCoordinator.removeProvider(identifiedBy: providerID)
         contextStatusMessage = nil
         do {
+            try await contextSnapshotStore.removeProvider(identifiedBy: providerID)
             try await refreshCurrentContext()
         } catch {
             errorMessage = "BrainSurfacer couldn’t refresh live context: "

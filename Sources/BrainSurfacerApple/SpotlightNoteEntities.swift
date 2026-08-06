@@ -210,6 +210,12 @@ public struct SpotlightNoteEntity: IndexedEntity {
     }
 
     var canonicalEntityID: EntityID { entity.id }
+    var sourceFileURL: URL { entity.source.fileURL }
+    var readableContent: String? {
+        (entity.body ?? entity.summary)?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+    }
 
     public struct Query: IndexedEntityQuery {
         public static let persistentIdentifier = "brainsurfacer.query.notes-note.v1"
