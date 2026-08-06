@@ -66,6 +66,34 @@ test("stale running process invalidates positive discovery immediately", async (
   assert.equal(processCalls, 2);
 });
 
+test("configured bundled helper targets its matching running application", async () => {
+  const installedBundle = "/Applications/BrainSurfacer.app";
+  const debugBundle = "/Build Products/BrainSurfacer.app";
+  const debugHelper = path.join(
+    debugBundle,
+    "Contents",
+    "Helpers",
+    "brainsurfacer-context",
+  );
+  const environment = makeEnvironment({
+    processLines: async () => [
+      ` 100 ${installedBundle}/Contents/MacOS/BrainSurfacer`,
+      ` 200 ${debugBundle}/Contents/MacOS/BrainSurfacer`,
+    ],
+    isExecutable: async (candidate) => candidate === debugHelper,
+  });
+  const discovery = new HelperDiscovery({
+    configuredCommand: debugHelper,
+    environment,
+  });
+
+  assert.deepEqual(await discovery.discover(), {
+    pid: 200,
+    bundlePath: debugBundle,
+    command: debugHelper,
+  });
+});
+
 function makeEnvironment(
   overrides: Partial<DiscoveryEnvironment>,
 ): DiscoveryEnvironment {

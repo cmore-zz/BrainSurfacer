@@ -105,11 +105,15 @@ export class HelperDiscovery {
     }
 
     if (this.configuredCommand.length > 0) {
-      const command = expandHome(this.configuredCommand);
+      const command = path.normalize(expandHome(this.configuredCommand));
       if (!path.isAbsolute(command) || !(await this.environment.isExecutable(command))) {
         return null;
       }
-      const application = applications[0];
+      const configuredBundle = enclosingApplicationBundle(command);
+      const application = applications.find(
+        (candidate) => configuredBundle !== null
+          && path.normalize(candidate.bundlePath) === configuredBundle,
+      ) ?? applications[0];
       return application === undefined ? null : { ...application, command };
     }
 
@@ -157,6 +161,16 @@ function expandHome(candidate: string): string {
   return candidate.startsWith("~/")
     ? path.join(homedir(), candidate.slice(2))
     : candidate;
+}
+
+function enclosingApplicationBundle(command: string): string | null {
+  const marker = `${path.sep}Contents${path.sep}`;
+  const contentsIndex = command.lastIndexOf(marker);
+  if (contentsIndex <= 0) {
+    return null;
+  }
+  const bundlePath = command.slice(0, contentsIndex);
+  return bundlePath.toLowerCase().endsWith(".app") ? bundlePath : null;
 }
 
 function readProcessLines(): Promise<string[]> {

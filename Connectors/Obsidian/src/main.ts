@@ -172,6 +172,11 @@ export default class BrainSurfacerPlugin extends Plugin {
       if (invoked) {
         this.lastPayload = payload;
         this.lastError = null;
+      } else {
+        // Discovery failure is not a helper error. Forget prior delivery state
+        // so diagnostics stay accurate and the next ordinary report retries.
+        this.lastPayload = null;
+        this.lastError = null;
       }
       return invoked;
     } catch (error) {
