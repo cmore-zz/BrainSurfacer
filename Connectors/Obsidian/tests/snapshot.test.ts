@@ -53,6 +53,25 @@ test("snapshot bounds UTF-8 path bytes", () => {
   );
 });
 
+test("snapshot stops at the byte budget without admitting lower relevance", () => {
+  // selected + visible already fill the budget; the shorter open path must not
+  // slip in behind them just because it happens to fit the remaining bytes.
+  const selectedPath = `/${"s".repeat(9_999)}`;
+  const visiblePath = `/${"v".repeat(9_999)}`;
+  const openPath = `/${"o".repeat(4_999)}`;
+  const snapshot = buildSnapshot([
+    { path: selectedPath, selected: true, visible: false },
+    { path: visiblePath, selected: false, visible: true },
+    { path: openPath, selected: false, visible: false },
+  ]);
+
+  assert.deepEqual(snapshot, {
+    selected: [selectedPath],
+    visible: [],
+    open: [],
+  });
+});
+
 test("payload contains grouped paths and normalized TTL without note content", () => {
   const payload = encodePayload("md.obsidian.test", 600, {
     selected: ["/notes/selected.md"],

@@ -72,7 +72,11 @@ export function buildSnapshot(documents: WorkspaceDocument[]): ContextSnapshot {
     }
     const bytes = textEncoder.encode(document.path).byteLength;
     if (pathBytes + bytes > maximumPathBytes) {
-      continue;
+      // Stop at the byte budget rather than skipping ahead: `ranked` is in
+      // descending relevance order, so breaking keeps the highest-relevance
+      // prefix instead of dropping a long selected/visible path in favor of
+      // shorter, lower-relevance ones that happen to fit.
+      break;
     }
     pathBytes += bytes;
     switch (document.relevance) {

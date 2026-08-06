@@ -63,20 +63,21 @@ function invokeHelper(target: HelperTarget, payload: string): Promise<void> {
       // The process-level error or nonzero close status provides the diagnostic.
     });
     child.once("error", reject);
-    child.once("close", (status) => {
+    child.once("close", (status, signal) => {
       if (status === 0) {
         resolve();
         return;
       }
       const diagnostic = Buffer.concat(errorChunks).toString("utf8").trim();
-      reject(
-        new Error(
-          diagnostic.length > 0
-            ? diagnostic
-            : `BrainSurfacer context helper exited with status ${String(status)}`,
-        ),
-      );
+      reject(new Error(diagnostic.length > 0 ? diagnostic : closeMessage(status, signal)));
     });
     child.stdin.end(payload, "utf8");
   });
+}
+
+function closeMessage(status: number | null, signal: NodeJS.Signals | null): string {
+  if (signal !== null) {
+    return `BrainSurfacer context helper terminated by signal ${signal}`;
+  }
+  return `BrainSurfacer context helper exited with status ${String(status)}`;
 }
