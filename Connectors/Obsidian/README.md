@@ -11,16 +11,22 @@ From this directory:
 
 ```sh
 npm install
-npm run build
+./install.sh /path/to/your/Obsidian/Vault
 ```
 
-Create a plugin directory in the vault and copy or symlink the runtime files:
+The installer verifies that the vault has an `.obsidian` configuration
+directory, builds the plugin, creates `.obsidian/plugins` when it is absent,
+and copies the runtime files to:
 
 ```text
 Vault/.obsidian/plugins/brainsurfacer-live-context/
   main.js
   manifest.json
 ```
+
+It refuses to replace a non-directory at either plugin path. Re-run the same
+command to update an existing installation; local plugin settings in
+`data.json` are left untouched.
 
 Then reload Obsidian, disable Restricted Mode if necessary, and enable
 **BrainSurfacer Live Context** under Community plugins. This first slice is a
