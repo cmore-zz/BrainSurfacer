@@ -72,6 +72,25 @@ test("snapshot stops at the byte budget without admitting lower relevance", () =
   });
 });
 
+test("snapshot keeps fitting paths from an overflowing relevance tier", () => {
+  const selectedPath = `/${"s".repeat(9_999)}`;
+  const overflowingVisiblePath = `/a${"v".repeat(6_998)}`;
+  const fittingVisiblePath = `/b${"v".repeat(4_998)}`;
+  const openPath = "/notes/open.md";
+  const snapshot = buildSnapshot([
+    { path: selectedPath, selected: true, visible: false },
+    { path: overflowingVisiblePath, selected: false, visible: true },
+    { path: fittingVisiblePath, selected: false, visible: true },
+    { path: openPath, selected: false, visible: false },
+  ]);
+
+  assert.deepEqual(snapshot, {
+    selected: [selectedPath],
+    visible: [fittingVisiblePath],
+    open: [],
+  });
+});
+
 test("payload contains grouped paths and normalized TTL without note content", () => {
   const payload = encodePayload("md.obsidian.test", 600, {
     selected: ["/notes/selected.md"],

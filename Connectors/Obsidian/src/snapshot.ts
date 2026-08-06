@@ -63,7 +63,14 @@ export function buildSnapshot(documents: WorkspaceDocument[]): ContextSnapshot {
 
   const snapshot: ContextSnapshot = { selected: [], visible: [], open: [] };
   let pathBytes = 0;
+  let byteBudgetExhaustedAt: Relevance | null = null;
   for (const document of ranked) {
+    if (
+      byteBudgetExhaustedAt !== null
+      && document.relevance < byteBudgetExhaustedAt
+    ) {
+      break;
+    }
     if (
       snapshot.selected.length + snapshot.visible.length + snapshot.open.length
         >= maximumDocumentCount
@@ -72,11 +79,10 @@ export function buildSnapshot(documents: WorkspaceDocument[]): ContextSnapshot {
     }
     const bytes = textEncoder.encode(document.path).byteLength;
     if (pathBytes + bytes > maximumPathBytes) {
-      // Stop at the byte budget rather than skipping ahead: `ranked` is in
-      // descending relevance order, so breaking keeps the highest-relevance
-      // prefix instead of dropping a long selected/visible path in favor of
-      // shorter, lower-relevance ones that happen to fit.
-      break;
+      // Keep considering equally relevant paths that may fit, but do not use
+      // the remaining budget for a lower relevance tier.
+      byteBudgetExhaustedAt = document.relevance;
+      continue;
     }
     pathBytes += bytes;
     switch (document.relevance) {
