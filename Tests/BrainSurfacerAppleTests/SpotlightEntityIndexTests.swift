@@ -313,6 +313,136 @@ func editorRequestsPreserveTheBestAvailableSourceAnchor() throws {
 }
 
 @Test
+func automaticOpeningPrefersTheOnlyEditorReportingTheSource() {
+    let now = Date(timeIntervalSince1970: 40_000)
+    let source = URL(fileURLWithPath: "/notes/Open.md")
+    let snapshots = [
+        openingSnapshot(
+            providerID: "org.gnu.Emacs",
+            reference: .sourceAnchor(SourceAnchor(fileURL: source)),
+            relevance: .selected,
+            at: now
+        ),
+        openingSnapshot(
+            providerID: "md.obsidian.BrainSurfacer.other-vault",
+            reference: .file(URL(fileURLWithPath: "/notes/Other.md")),
+            at: now
+        ),
+        openingSnapshot(
+            providerID: "com.example.UnknownEditor",
+            reference: .file(source),
+            at: now
+        )
+    ]
+
+    #expect(
+        LiveContextOpeningPreferenceResolver.preference(
+            for: source,
+            in: snapshots,
+            at: now
+        ) == .emacs
+    )
+}
+
+@Test
+func automaticOpeningTreatsMultipleVaultsAsOneEditorFamily() {
+    let now = Date(timeIntervalSince1970: 41_000)
+    let source = URL(fileURLWithPath: "/notes/Open.md")
+    let snapshots = ["first", "second"].map {
+        openingSnapshot(
+            providerID: "md.obsidian.BrainSurfacer.\($0)",
+            reference: .file(source),
+            at: now
+        )
+    }
+
+    #expect(
+        LiveContextOpeningPreferenceResolver.preference(
+            for: source,
+            in: snapshots,
+            at: now
+        ) == .obsidian
+    )
+}
+
+@Test
+func automaticOpeningUsesTheDefaultWhenEditorsAreAmbiguous() {
+    let now = Date(timeIntervalSince1970: 42_000)
+    let source = URL(fileURLWithPath: "/notes/Open.md")
+    let snapshots = [
+        openingSnapshot(
+            providerID: "org.gnu.Emacs",
+            reference: .file(source),
+            at: now
+        ),
+        openingSnapshot(
+            providerID: "md.obsidian.BrainSurfacer.vault",
+            reference: .file(source),
+            at: now
+        )
+    ]
+
+    #expect(
+        LiveContextOpeningPreferenceResolver.preference(
+            for: source,
+            in: snapshots,
+            at: now
+        ) == nil
+    )
+}
+
+@Test
+func automaticOpeningIgnoresExpiredAndNonOpenContext() {
+    let now = Date(timeIntervalSince1970: 43_000)
+    let source = URL(fileURLWithPath: "/notes/Open.md")
+    let snapshots = [
+        openingSnapshot(
+            providerID: "org.gnu.Emacs",
+            reference: .file(source),
+            relevance: .open,
+            expiration: now,
+            at: now
+        ),
+        openingSnapshot(
+            providerID: "md.obsidian.BrainSurfacer.vault",
+            reference: .file(source),
+            relevance: .recent,
+            at: now
+        )
+    ]
+
+    #expect(
+        LiveContextOpeningPreferenceResolver.preference(
+            for: source,
+            in: snapshots,
+            at: now
+        ) == nil
+    )
+}
+
+@Test
+func explicitOpeningPreferenceOverridesLiveContext() {
+    #expect(
+        ConfiguredDocumentOpener.effectivePreference(
+            configured: .obsidian,
+            contextual: .emacs
+        ) == .obsidian
+    )
+    #expect(
+        ConfiguredDocumentOpener.effectivePreference(
+            configured: .systemDefault,
+            contextual: .emacs
+        ) == .emacs
+    )
+    #expect(
+        ConfiguredDocumentOpener.effectivePreference(
+            configured: .systemDefault,
+            contextual: nil
+        ) == .systemDefault
+    )
+}
+
+@Test
 func configuredOpenerChecksTheSourceInsideItsAccessLease() async throws {
     let source = URL(
         fileURLWithPath: "/missing/\(UUID().uuidString)/Document.md"
@@ -330,6 +460,26 @@ func configuredOpenerChecksTheSourceInsideItsAccessLease() async throws {
         try await opener.open(entity)
     }
     #expect(await access.requestedURLs == [source])
+}
+
+private func openingSnapshot(
+    providerID: String,
+    reference: EntityReference,
+    relevance: ContextRelevance = .open,
+    expiration: Date? = nil,
+    at date: Date
+) -> ContextSnapshot {
+    ContextSnapshot(
+        providerID: providerID,
+        observedAt: date,
+        contributions: [
+            ContextContribution(
+                reference: reference,
+                relevance: relevance,
+                expiresAt: expiration ?? date.addingTimeInterval(60)
+            )
+        ]
+    )
 }
 
 @Test

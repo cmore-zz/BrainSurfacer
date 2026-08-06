@@ -848,7 +848,7 @@ private struct OpenersView: View {
     private var openerExplanation: String {
         switch DocumentOpeningPreference(rawValue: preference) ?? .systemDefault {
         case .systemDefault:
-            "Uses the application associated with each source file."
+            "Reuses Emacs or Obsidian when exactly one reports the file open; otherwise uses the application associated with the source file."
         case .obsidian:
             "Uses Obsidian’s URI and includes the Markdown heading when one is available. Falls back to the default application if Obsidian cannot open it."
         case .emacs:
