@@ -3,3 +3,6 @@
 .DS_Store
 xcuserdata/
 *.elc
+Connectors/Obsidian/node_modules/
+Connectors/Obsidian/main.js
+Connectors/Obsidian/data.json

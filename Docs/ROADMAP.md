@@ -106,7 +106,7 @@ invariants.
   Schema for selected/visible/open documents. *(implemented)*
 - Extend Emacs context to Org Agenda, capture, narrowed subtree, heading, and
   selection anchors.
-- Implement Obsidian visible/working-set reporting.
+- Implement Obsidian visible/working-set reporting. *(implemented)*
 - Keep precise Emacs and Obsidian opener capabilities aligned with their
   connector anchors.
 - Keep editor context ephemeral and consented; do not imply that it becomes
