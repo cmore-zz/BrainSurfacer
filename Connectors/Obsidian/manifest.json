@@ -1,0 +1,9 @@
+{
+  "id": "brainsurfacer-live-context",
+  "name": "BrainSurfacer Live Context",
+  "version": "0.1.0",
+  "minAppVersion": "1.7.2",
+  "description": "Reports selected, visible, and open Markdown documents to BrainSurfacer.",
+  "author": "BrainSurfacer contributors",
+  "isDesktopOnly": true
+}

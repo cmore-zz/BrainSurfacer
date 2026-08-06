@@ -96,6 +96,29 @@ launch-on-context mode cover unusual installations. See the
 [Emacs connector guide](../Connectors/Emacs/README.md) for setup, customization,
 diagnostics, tests, and current limitations.
 
+## Obsidian connector
+
+The desktop-only Obsidian plugin under
+[`Connectors/Obsidian`](../Connectors/Obsidian) reports Markdown workspace
+leaves rather than every Markdown file in the vault. The active Markdown view
+is selected, files displayed in other panes and popout windows are visible, and
+files in background tabs are open. Deferred background tabs remain unloaded;
+the plugin reads their saved file path from the leaf's view state.
+
+The connector listens for active-leaf, file-open, layout, popout-window,
+rename, and deletion events, then coalesces a burst into one complete snapshot.
+It refreshes unchanged state every 30 seconds against the same 60-second TTL.
+Each local vault has a stable, path-derived provider identifier so multiple
+vaults do not replace one another's snapshots.
+
+Like the Emacs connector, it discovers the helper inside the actually running
+BrainSurfacer bundle, validates cached positive discovery through the process
+ID, passes the bundle back with `--application`, and does nothing while the app
+is absent. An optional absolute helper path handles unusual builds without
+allowing workspace activity to launch BrainSurfacer. See the
+[Obsidian connector guide](../Connectors/Obsidian/README.md) for development
+installation, diagnostics, tests, and current limitations.
+
 Editor context and indexing remain separate decisions. A file opened in
 `org-mode` can be reported even when its extension is not currently parsed, but
 the connector cannot enroll or index it. It remains unresolved unless the

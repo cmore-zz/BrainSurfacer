@@ -375,11 +375,20 @@ coalesces file/window/frame hooks, and refreshes before expiration. This does no
 grant indexing authority. An eligible buffer outside enrollment or without a
 catalogued entity remains unresolved.
 
+The first Obsidian connector reports only Markdown workspace leaves, not every
+note in the vault. It treats the active Markdown view as selected, displayed
+panes and popout windows as visible, and background tabs as open. It reads the
+saved path of a deferred tab without loading the view, assigns duplicate paths
+their highest relevance, and gives each local vault a distinct stable provider
+identifier. As with Emacs, this reports context but grants no enrollment or
+indexing authority.
+
 The macOS app embeds the connector helper under `Contents/Helpers`. Emacs finds
-the running app through its full process command, derives the helper path from
-that actual bundle, and caches discovery. This supports renamed, installed, and
-Xcode Debug bundles without a fixed `/Applications` assumption and avoids
-launching the app merely because editor state changed.
+the running app through its full process command, and the Obsidian connector
+uses the same discovery boundary. Each derives the helper path from that actual
+bundle and caches discovery. This supports renamed, installed, and Xcode Debug
+bundles without a fixed `/Applications` assumption and avoids launching the app
+merely because editor state changed.
 
 ## Identity and storage
 
