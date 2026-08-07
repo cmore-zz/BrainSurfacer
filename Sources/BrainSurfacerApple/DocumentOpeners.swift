@@ -27,6 +27,9 @@ public enum DocumentOpeningSettings {
 }
 
 struct LiveContextOpeningPreferenceResolver: Sendable {
+    // Connector identity contract: keep these namespaces aligned with
+    // Connectors/Emacs/brainsurfacer.el and Connectors/Obsidian/src/main.ts.
+    // Customized Emacs IDs retain recognition when they use a dot suffix.
     private static let emacsProviderID = "org.gnu.Emacs"
     private static let obsidianProviderID = "md.obsidian.BrainSurfacer"
 
@@ -131,14 +134,10 @@ public struct ConfiguredDocumentOpener: DocumentOpener {
     private let contextPreferenceResolver: LiveContextOpeningPreferenceResolver
 
     public init(
-        accessProvider: any DocumentAccessProvider = SourceDirectoryStore(),
-        contextSnapshotStore: PersistentContextSnapshotStore =
-            PersistentContextSnapshotStore()
+        accessProvider: any DocumentAccessProvider = SourceDirectoryStore()
     ) {
         self.accessProvider = accessProvider
-        contextPreferenceResolver = LiveContextOpeningPreferenceResolver(
-            snapshotStore: contextSnapshotStore
-        )
+        contextPreferenceResolver = LiveContextOpeningPreferenceResolver()
     }
 
     public func canOpen(_ entity: KnowledgeEntity) async -> Bool {

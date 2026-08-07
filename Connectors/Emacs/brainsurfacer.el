@@ -65,7 +65,10 @@ Running application bundles discovered from the process table take priority."
   :group 'brainsurfacer)
 
 (defcustom brainsurfacer-provider-id "org.gnu.Emacs"
-  "Stable provider identifier sent with each editor snapshot."
+  "Stable provider identifier sent with each editor snapshot.
+
+Keep the `org.gnu.Emacs' value or use an `org.gnu.Emacs.' prefix when
+customizing it so BrainSurfacer's Automatic opener recognizes Emacs context."
   :type 'string
   :group 'brainsurfacer)
 

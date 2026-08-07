@@ -84,18 +84,12 @@ final class SourceLibraryModel {
             fingerprintStore: fingerprintStore,
             coordinator: coordinator
         )
-        let contextSnapshotStore = PersistentContextSnapshotStore()
         openingCoordinator = EntityOpeningCoordinator(
             catalog: catalog,
-            openers: [
-                ConfiguredDocumentOpener(
-                    accessProvider: store,
-                    contextSnapshotStore: contextSnapshotStore
-                )
-            ]
+            openers: [ConfiguredDocumentOpener(accessProvider: store)]
         )
         contextCoordinator = ContextCoordinator(catalog: catalog)
-        self.contextSnapshotStore = contextSnapshotStore
+        contextSnapshotStore = PersistentContextSnapshotStore()
         self.contextPublisher = contextPublisher
             ?? SpotlightLiveContextIndex(catalog: catalog)
         sourceChangeCoalescer = SourceChangeCoalescer { [weak self] sourceURLs in

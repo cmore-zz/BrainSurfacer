@@ -58,6 +58,12 @@ Emacs clears the provider. TTL settings outside BrainSurfacer's supported
 1–300-second range are normalized before both reporting and heartbeat
 scheduling.
 
+The default provider identifier is `org.gnu.Emacs`. BrainSurfacer's Automatic
+document opener recognizes that identifier and dot-suffixed variants such as
+`org.gnu.Emacs.work`. Preserve that namespace when customizing
+`brainsurfacer-provider-id`; an unrelated identifier still reports context but
+cannot select Emacs automatically.
+
 Context eligibility does not override BrainSurfacer indexing policy. For
 example, a `.txt` buffer in `org-mode` can be reported as editor context, but it
 does not thereby become enrolled or indexed. Until BrainSurfacer can resolve it
