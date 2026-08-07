@@ -62,9 +62,10 @@ The Index view merges the durable local catalog with Spotlight’s ranked
 user-query API, so local-only sources remain searchable without being donated
 to Apple. Results open through the same canonical resolution path as Spotlight
 and Siri App Intents. Durable `brainsurfacer://` links survive source moves
-recorded by the catalog. The app can route results to the default macOS application,
-Obsidian with a Markdown heading, or Emacs with a line and column, with safe
-fallback to the default application. A system in-app search intent opens the
+recorded by the catalog. Automatic opening reuses Emacs or Obsidian when exactly
+one reports the source open, then falls back to the default macOS application;
+explicit editor preferences remain available and preserve Markdown headings or
+line and column anchors. A system in-app search intent opens the
 same Index UI and query flow. A versioned command-line bridge now accepts
 complete, expiring selected/visible/open document snapshots from local editor
 connectors. Only anchors under enrolled sources are accepted; the snapshots

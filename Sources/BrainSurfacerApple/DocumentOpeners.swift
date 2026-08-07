@@ -4,7 +4,8 @@ import BrainSurfacerFilesystem
 import BrainSurfacerModel
 import Foundation
 
-public enum DocumentOpeningPreference: String, CaseIterable, Identifiable, Sendable {
+public enum DocumentOpeningPreference: String, CaseIterable, Hashable,
+    Identifiable, Sendable {
     case systemDefault
     case obsidian
     case emacs
@@ -13,7 +14,7 @@ public enum DocumentOpeningPreference: String, CaseIterable, Identifiable, Senda
 
     public var title: String {
         switch self {
-        case .systemDefault: "Default application"
+        case .systemDefault: "Automatic"
         case .obsidian: "Obsidian"
         case .emacs: "Emacs"
         }
@@ -23,6 +24,92 @@ public enum DocumentOpeningPreference: String, CaseIterable, Identifiable, Senda
 public enum DocumentOpeningSettings {
     public static let preferenceKey = "documentOpeningPreference"
     public static let emacsApplicationPathKey = "emacsApplicationPath"
+}
+
+struct LiveContextOpeningPreferenceResolver: Sendable {
+    // Connector identity contract: keep these namespaces aligned with
+    // Connectors/Emacs/brainsurfacer.el and Connectors/Obsidian/src/main.ts.
+    // Customized Emacs IDs retain recognition when they use a dot suffix.
+    private static let emacsProviderID = "org.gnu.Emacs"
+    private static let obsidianProviderID = "md.obsidian.BrainSurfacer"
+
+    private let snapshotStore: PersistentContextSnapshotStore
+
+    init(
+        snapshotStore: PersistentContextSnapshotStore =
+            PersistentContextSnapshotStore()
+    ) {
+        self.snapshotStore = snapshotStore
+    }
+
+    func preference(
+        for fileURL: URL,
+        at date: Date = Date()
+    ) async -> DocumentOpeningPreference? {
+        Self.preference(
+            for: fileURL,
+            in: await snapshotStore.snapshots(at: date),
+            at: date
+        )
+    }
+
+    static func preference(
+        for fileURL: URL,
+        in snapshots: [ContextSnapshot],
+        at date: Date
+    ) -> DocumentOpeningPreference? {
+        let targetPath = fileURL.standardizedFileURL.path(percentEncoded: false)
+        var preferences: Set<DocumentOpeningPreference> = []
+
+        for snapshot in snapshots {
+            guard let preference = preference(forProviderID: snapshot.providerID),
+                  snapshot.contributions.contains(where: {
+                      contribution($0, reportsOpenPath: targetPath, at: date)
+                  }) else {
+                continue
+            }
+            preferences.insert(preference)
+            if preferences.count > 1 {
+                return nil
+            }
+        }
+        return preferences.first
+    }
+
+    private static func preference(
+        forProviderID providerID: String
+    ) -> DocumentOpeningPreference? {
+        if providerID == emacsProviderID
+            || providerID.hasPrefix("\(emacsProviderID).") {
+            return .emacs
+        }
+        if providerID == obsidianProviderID
+            || providerID.hasPrefix("\(obsidianProviderID).") {
+            return .obsidian
+        }
+        return nil
+    }
+
+    private static func contribution(
+        _ contribution: ContextContribution,
+        reportsOpenPath targetPath: String,
+        at date: Date
+    ) -> Bool {
+        guard contribution.expiresAt > date,
+              [.selected, .visible, .open].contains(contribution.relevance),
+              let fileURL = fileURL(for: contribution.reference) else {
+            return false
+        }
+        return fileURL.standardizedFileURL.path(percentEncoded: false) == targetPath
+    }
+
+    private static func fileURL(for reference: EntityReference) -> URL? {
+        switch reference {
+        case let .file(fileURL): fileURL
+        case let .sourceAnchor(anchor): anchor.fileURL
+        case .entityID, .providerLocal: nil
+        }
+    }
 }
 
 public enum DocumentOpeningFailure: LocalizedError, Sendable {
@@ -44,11 +131,13 @@ public enum DocumentOpeningFailure: LocalizedError, Sendable {
 public struct ConfiguredDocumentOpener: DocumentOpener {
     public let id = "configured-macos-opener"
     private let accessProvider: any DocumentAccessProvider
+    private let contextPreferenceResolver: LiveContextOpeningPreferenceResolver
 
     public init(
         accessProvider: any DocumentAccessProvider = SourceDirectoryStore()
     ) {
         self.accessProvider = accessProvider
+        contextPreferenceResolver = LiveContextOpeningPreferenceResolver()
     }
 
     public func canOpen(_ entity: KnowledgeEntity) async -> Bool {
@@ -67,6 +156,18 @@ public struct ConfiguredDocumentOpener: DocumentOpener {
                 defaults.string(forKey: DocumentOpeningSettings.emacsApplicationPathKey)
             )
         }
+        let contextualPreference: DocumentOpeningPreference?
+        if settings.0 == .systemDefault {
+            contextualPreference = await contextPreferenceResolver.preference(
+                for: entity.source.fileURL
+            )
+        } else {
+            contextualPreference = nil
+        }
+        let effectivePreference = Self.effectivePreference(
+            configured: settings.0,
+            contextual: contextualPreference
+        )
 
         try await accessProvider.performWithAccess(
             to: entity.source.fileURL
@@ -74,7 +175,7 @@ public struct ConfiguredDocumentOpener: DocumentOpener {
             try Self.validateSourceIfMissing(entity.source.fileURL)
 
             do {
-                switch settings.0 {
+                switch effectivePreference {
                 case .systemDefault:
                     try await Self.openWithSystemDefault(entity.source.fileURL)
                 case .obsidian:
@@ -88,12 +189,19 @@ public struct ConfiguredDocumentOpener: DocumentOpener {
                 case .emacs:
                     try await Self.openWithEmacs(entity, configuredPath: settings.1)
                 }
-            } catch where settings.0 != .systemDefault {
-                // A stale editor preference must never turn a valid Spotlight
-                // hit into a dead end.
+            } catch where effectivePreference != .systemDefault {
+                // A stale configured or context-derived editor route must never
+                // turn a valid Spotlight hit into a dead end.
                 try await Self.openWithSystemDefault(entity.source.fileURL)
             }
         }
+    }
+
+    static func effectivePreference(
+        configured: DocumentOpeningPreference,
+        contextual: DocumentOpeningPreference?
+    ) -> DocumentOpeningPreference {
+        configured == .systemDefault ? contextual ?? .systemDefault : configured
     }
 
     static func obsidianURL(for entity: KnowledgeEntity) -> URL? {

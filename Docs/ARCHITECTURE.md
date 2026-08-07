@@ -314,10 +314,13 @@ ephemeral ranking authority; it cannot open or index an unenrolled path.
 
 The configured macOS opener routes to the file's default application, an
 Obsidian URI with the closest Markdown heading, or Emacs.app arguments with the
-closest line and column. A failed or stale editor preference falls back to the
-system default. Editor-specific probes do not present a system app-picker;
-only the terminal default-app path prompts the user if macOS needs help. Before
-checking or dispatching a source file, the opener
+closest line and column. In automatic mode, one recognized editor family that
+currently reports the source as selected, visible, or open takes precedence;
+reports from both editor families are ambiguous and retain the system default.
+An explicit editor setting overrides live context. A failed or stale editor
+preference falls back to the system default. Editor-specific probes do not
+present a system app-picker; only the terminal default-app path prompts the
+user if macOS needs help. Before checking or dispatching a source file, the opener
 loads the same configurable enrollment store used by source management,
 refreshes stale saved bookmarks, selects the most-specific enrolled parent
 directory, and holds its security-scoped access for the complete operation.

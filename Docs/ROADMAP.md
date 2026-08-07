@@ -50,6 +50,9 @@ invariants.
 - Add an App Intent open action for every persistent entity.
 - Route durable entity deep links through configurable Emacs, Obsidian, and
   `NSWorkspace` openers while preserving the closest supported anchor.
+- In automatic mode, reuse the sole editor family reporting a source open;
+  retain explicit preferences and the system default for ambiguous context.
+  *(implemented)*
 - Add a beta-4 system `searchInApp` App Schema intent that presents
   BrainSurfacer's search UI. *(implemented)*
 - Make Spotlight, Siri, and in-app results share one resolution and opening

@@ -111,6 +111,13 @@ It refreshes unchanged state every 30 seconds against the same 60-second TTL.
 Each local vault has a stable, path-derived provider identifier so multiple
 vaults do not replace one another's snapshots.
 
+When BrainSurfacer's document opener is set to Automatic, these provider
+identifiers also let it reuse an editor that currently reports the requested
+file as selected, visible, or open. Multiple vaults from the same editor family
+are treated as one application choice. If both Emacs and Obsidian report the
+file, BrainSurfacer leaves the choice to its configured/default opener. An
+explicit Emacs or Obsidian opener setting always wins over live context.
+
 Like the Emacs connector, it discovers the helper inside the actually running
 BrainSurfacer bundle, validates cached positive discovery through the process
 ID, passes the bundle back with `--application`, and does nothing while the app
