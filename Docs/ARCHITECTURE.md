@@ -239,18 +239,23 @@ an unrelated visible document as a search result.
 
 The first cross-process connector contract is a versioned, bounded
 `EditorContextUpdate`: a complete snapshot of file anchors marked selected,
-visible, or open. A small command-line bridge delivers the snapshot through a
-local custom URL. The app validates its version, age, expiration, shape, and
-size, then discards every anchor outside a currently enrolled source before
-passing it to `ContextCoordinator`. The accepted path-only snapshots are also
-atomically persisted in a separate transient store so a background App Intent
-or an app relaunch can recover them for no longer than the provider-supplied
-TTL. The store never copies document content and an empty snapshot clears the
-provider. Intent execution resolves the still-live anchors against the current
-catalog and bounds the returned item count and excerpts. This does not donate
-the working set to Spotlight or extend its lifetime. The custom-URL payload is
-URL-safe base64, not encryption, and it does not authenticate the sender;
-authenticated streaming IPC remains a later transport improvement.
+visible, or open. A small command-line bridge normally delivers the snapshot to
+the exact running app through its per-process local message port. Manual helper
+invocations without a process ID retain a custom-URL fallback. The app validates
+the update's version, age, expiration, shape, and size, then discards every
+anchor outside a currently enrolled source before passing it to
+`ContextCoordinator`. The accepted path-only snapshots are also atomically
+persisted in a separate transient store so a background App Intent or an app
+relaunch can recover them for no longer than the provider-supplied TTL. The
+store never copies document content and an empty snapshot clears the provider.
+Intent execution resolves the still-live anchors against the current catalog
+and bounds the returned item count and excerpts. This does not donate the
+working set to Spotlight or extend its lifetime. A PID-derived port name selects
+one app instance but does not authenticate the sender: another process running
+as the logged-in user may resolve the name and submit a valid bounded update.
+The custom-URL fallback additionally encodes its payload as URL-safe base64,
+which is not encryption. A future XPC transport can validate the peer's audit
+token and code signature before accepting a streaming connection.
 
 ### Apple platform
 
@@ -305,8 +310,13 @@ stale projected path from becoming a second identity system and lets catalog
 reconciliation follow moves and renames.
 
 Incoming custom-scheme URLs are untrusted navigation. Handlers accept only the
-fixed entity, search, and bounded context routes and never accept commands. An
-entity route resolves its identifier exclusively against the enrolled local
+fixed entity, search, and bounded context routes and never accept commands. The
+editor helpers normally carry the same bounded context value over a per-process
+local message port in BrainSurfacer’s App Group namespace, avoiding Launch
+Services activation and window ordering while remaining compatible with the
+macOS App Sandbox. The namespace makes the port reachable; it does not restrict
+it to BrainSurfacer's embedded helper. An entity route resolves its identifier
+exclusively against the enrolled local
 catalog before opening its source in the configured editor. A search route only
 presents a query in BrainSurfacer. A context route may carry file anchors, but
 the app filters them through the current source enrollments and gives them only
@@ -389,9 +399,10 @@ indexing authority.
 The macOS app embeds the connector helper under `Contents/Helpers`. Emacs finds
 the running app through its full process command, and the Obsidian connector
 uses the same discovery boundary. Each derives the helper path from that actual
-bundle and caches discovery. This supports renamed, installed, and Xcode Debug
-bundles without a fixed `/Applications` assumption and avoids launching the app
-merely because editor state changed.
+bundle, caches discovery, and addresses the app’s local message port by process
+ID. This supports renamed, installed, and Xcode Debug bundles without a fixed
+`/Applications` assumption and avoids launching or reordering the app merely
+because editor state changed.
 
 ## Identity and storage
 

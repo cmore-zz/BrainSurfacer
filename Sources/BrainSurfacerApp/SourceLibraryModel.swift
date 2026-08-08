@@ -49,6 +49,7 @@ final class SourceLibraryModel {
     private let contextSnapshotStore: PersistentContextSnapshotStore
     private let contextPublisher: any ContextPublisher
     private let sourceObserver: FSEventsSourceObserver
+    private var contextMessagePortServer: ContextMessagePortServer?
     private var sourceChangeSubscription: SourceChangeSubscription?
     private var sourceObservationTask: Task<Void, Never>?
     private var sourceChangeCoalescer: SourceChangeCoalescer?
@@ -94,6 +95,15 @@ final class SourceLibraryModel {
             ?? SpotlightLiveContextIndex(catalog: catalog)
         sourceChangeCoalescer = SourceChangeCoalescer { [weak self] sourceURLs in
             await self?.reconcileChangedSources(sourceURLs)
+        }
+        do {
+            contextMessagePortServer = try ContextMessagePortServer {
+                [weak self] update in
+                await self?.ingestEditorContext(update)
+            }
+        } catch {
+            errorMessage = "BrainSurfacer couldn’t start its editor-context listener: "
+                + error.localizedDescription
         }
         Task {
             sources = await store.load()

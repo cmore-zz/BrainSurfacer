@@ -1,3 +1,4 @@
+import AppKit
 import BrainSurfacerCore
 import Darwin
 import Foundation
@@ -13,12 +14,22 @@ struct BrainSurfacerContextCommand {
             }
 
             let update = try arguments.editorContextUpdate()
-            let url = BrainSurfacerDeepLink.context(update).url
             if arguments.onlyPrintsURL {
+                let url = BrainSurfacerDeepLink.context(update).url
                 print(url.absoluteString)
                 return
             }
 
+            if let processIdentifier = arguments.processIdentifier {
+                try arguments.validateProcessTarget(processIdentifier)
+                try ContextMessagePortClient().send(
+                    update,
+                    to: processIdentifier
+                )
+                return
+            }
+
+            let url = BrainSurfacerDeepLink.context(update).url
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
             process.arguments = arguments.openArguments(for: url)
@@ -41,14 +52,16 @@ private struct Arguments {
     Usage:
       brainsurfacer-context --provider ID [--ttl SECONDS]
         [--selected PATH] [--visible PATH] [--open PATH]
-        [--application APP] [--print-url]
-      brainsurfacer-context --input FILE [--application APP] [--print-url]
+        [--process PID] [--application APP] [--print-url]
+      brainsurfacer-context --input FILE
+        [--process PID] [--application APP] [--print-url]
 
     Send a complete, expiring editor snapshot to BrainSurfacer. Repeat document
     flags as needed, or read grouped path arrays from a JSON file. Use --input -
     to read bounded JSON from standard input. Sending no documents clears that
-    provider's live context. Use --application to target an exact app bundle
-    instead of asking Launch Services to choose a URL-scheme handler.
+    provider's live context. Use --process for nonactivating delivery to an
+    already-running BrainSurfacer. Use --application to validate that process
+    and to target an exact app bundle when falling back to Launch Services.
     """
 
     var providerID = ""
@@ -56,6 +69,7 @@ private struct Arguments {
     var documents: [EditorContextDocument] = []
     var inputPath: String?
     var applicationPath: String?
+    var processIdentifier: pid_t?
     var onlyPrintsURL = false
     var showsHelp = false
     private var hasProviderOption = false
@@ -95,6 +109,14 @@ private struct Arguments {
                     in: arguments,
                     at: index
                 )
+                index += 2
+            case "--process":
+                let value = try Self.value(after: argument, in: arguments, at: index)
+                guard let processIdentifier = pid_t(value),
+                      processIdentifier > 0 else {
+                    throw CommandError.invalidValue(option: argument, value: value)
+                }
+                self.processIdentifier = processIdentifier
                 index += 2
             case "--selected", "--visible", "--open":
                 let value = try Self.value(after: argument, in: arguments, at: index)
@@ -161,6 +183,26 @@ private struct Arguments {
         return result
     }
 
+    func validateProcessTarget(_ processIdentifier: pid_t) throws {
+        guard let applicationPath else {
+            return
+        }
+        let expectedURL = URL(fileURLWithPath: applicationPath)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        guard let application = NSRunningApplication(
+            processIdentifier: processIdentifier
+        ), !application.isTerminated,
+           application.bundleURL?
+            .resolvingSymlinksInPath()
+            .standardizedFileURL == expectedURL else {
+            throw CommandError.processDoesNotMatchApplication(
+                processIdentifier,
+                applicationPath
+            )
+        }
+    }
+
     private static func value(
         after option: String,
         in arguments: [String],
@@ -216,6 +258,7 @@ private enum CommandError: LocalizedError {
     case invalidValue(option: String, value: String)
     case conflictingInputOptions
     case launchFailed(Int32)
+    case processDoesNotMatchApplication(pid_t, String)
 
     var errorDescription: String? {
         switch self {
@@ -231,6 +274,8 @@ private enum CommandError: LocalizedError {
             "--input cannot be combined with --provider, --ttl, or document flags."
         case let .launchFailed(status):
             "Could not deliver context to BrainSurfacer (open exited \(status))."
+        case let .processDoesNotMatchApplication(processIdentifier, application):
+            "Process \(processIdentifier) is not the running BrainSurfacer at \(application)."
         }
     }
 }

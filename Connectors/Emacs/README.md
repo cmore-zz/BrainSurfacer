@@ -30,10 +30,11 @@ an ordinary buffer change does not launch the app. Automatic discovery assumes
 the local process table is trustworthy; it does not perform a code-signature
 identity check.
 
-Each helper invocation also receives that exact application bundle path. The
-helper targets it with `open -a` instead of asking Launch Services to choose
-among every installed or DerivedData copy registered for the `brainsurfacer`
-URL scheme.
+Each helper invocation also receives that exact process ID and application
+bundle path. The helper sends context through BrainSurfacer’s per-process local
+message port, without asking Launch Services to open, activate, or reorder the
+application. The bundle path verifies that a cached PID still belongs to the
+expected installed or DerivedData build.
 
 For an unusual installation, set `brainsurfacer-command` to an absolute helper
 path or executable name. Set `brainsurfacer-require-running-app` to `nil` only

@@ -219,11 +219,13 @@
 
 (ert-deftest brainsurfacer-helper-targets-discovered-application ()
   (let ((brainsurfacer--discovery-cache
-         '(:application "/Build Products/BrainSurfacer Debug.app")))
+         '(:pid 4242
+           :application "/Build Products/BrainSurfacer Debug.app")))
     (should
      (equal
       (brainsurfacer--helper-arguments)
-      '("--application" "/Build Products/BrainSurfacer Debug.app"
+      '("--process" "4242"
+        "--application" "/Build Products/BrainSurfacer Debug.app"
         "--input" "-")))))
 
 (ert-deftest brainsurfacer-helper-allows-standalone-dispatch ()

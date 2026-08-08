@@ -173,3 +173,31 @@ func editorContextJSONInputRejectsEmptyPathsAndOversizedFiles() throws {
         try EditorContextInput.decodeJSON(oversized)
     }
 }
+
+@Test
+func contextMessagePortTargetsOneRunningProcessWithoutLaunchServices() throws {
+    let processIdentifier = ProcessInfo.processInfo.processIdentifier
+    #expect(
+        ContextMessagePortEndpoint.name(processIdentifier: processIdentifier)
+            == "group.org.brainsurfacer.BrainSurfacer.context.\(processIdentifier)"
+    )
+
+    let update = try EditorContextUpdate(
+        providerID: "test.message-port",
+        documents: [
+            EditorContextDocument(
+                fileURL: URL(fileURLWithPath: "/notes/Plan.md"),
+                relevance: .selected
+            )
+        ]
+    )
+    let server = try ContextMessagePortServer(
+        processIdentifier: processIdentifier
+    ) { _ in }
+
+    try ContextMessagePortClient().send(
+        update,
+        to: processIdentifier
+    )
+    withExtendedLifetime(server) {}
+}

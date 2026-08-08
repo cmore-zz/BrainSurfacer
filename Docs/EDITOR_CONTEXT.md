@@ -59,9 +59,16 @@ should be stable and specific to the connector.
 For development and protocol inspection, `--print-url` prints the handoff URL
 without opening BrainSurfacer.
 
-`--application /path/to/BrainSurfacer.app` directs the handoff URL to that exact
-bundle with `open -a`. Without it, the standalone helper retains generic URL
-scheme dispatch for compatibility.
+`--process PID` sends the update to that already-running BrainSurfacer through
+a per-process local message port. This path neither activates nor reorders the
+application. The port uses BrainSurfacer’s App Group namespace so the sandboxed
+app can receive messages from its bundled nonsandboxed helper. The namespace is
+not caller authentication: other processes running as the logged-in user may
+also resolve the port. Connectors pair `--process` with
+`--application /path/to/BrainSurfacer.app`, which verifies that the PID still
+belongs to the expected build. Without `--process`, the standalone helper
+retains its `open -g` URL handoff for manual use and opt-in launch-on-context
+compatibility.
 
 The macOS application target builds the same helper implementation and embeds
 it at `BrainSurfacer.app/Contents/Helpers/brainsurfacer-context`, giving editor
@@ -87,12 +94,11 @@ By default the package scans full process command lines for a running
 `*.app/Contents/MacOS/BrainSurfacer`, derives that bundle's helper path, and
 caches positive or negative discovery for ten seconds. A cached running app is
 validated through its process ID without another `ps` scan. It does nothing
-while the app is absent. The discovered bundle is passed back to the helper so
-Launch Services targets that copy rather than choosing another installed or
-DerivedData build. BrainSurfacer uses a unique application window, so repeated
-replacement snapshots are delivered to the existing UI instead of creating a
-new window for every editor change. An explicit helper setting and opt-in
-launch-on-context mode cover unusual installations. See the
+while the app is absent. The discovered process and bundle are passed back to
+the helper for direct, nonactivating local delivery to that exact build.
+Repeated replacement snapshots therefore do not open or reorder BrainSurfacer
+windows. An explicit helper setting and opt-in launch-on-context mode cover
+unusual installations. See the
 [Emacs connector guide](../Connectors/Emacs/README.md) for setup, customization,
 diagnostics, tests, and current limitations.
 
@@ -120,9 +126,9 @@ explicit Emacs or Obsidian opener setting always wins over live context.
 
 Like the Emacs connector, it discovers the helper inside the actually running
 BrainSurfacer bundle, validates cached positive discovery through the process
-ID, passes the bundle back with `--application`, and does nothing while the app
-is absent. An optional absolute helper path handles unusual builds without
-allowing workspace activity to launch BrainSurfacer. See the
+ID, and passes that PID and bundle back for direct local delivery. It does
+nothing while the app is absent. An optional absolute helper path handles
+unusual builds without allowing workspace activity to launch BrainSurfacer. See the
 [Obsidian connector guide](../Connectors/Obsidian/README.md) for development
 installation, diagnostics, tests, and current limitations.
 
@@ -144,13 +150,18 @@ BrainSurfacer catalog already contains a canonical entity for that source.
 - The protocol is versioned and bounded to 100 documents and 16 KiB of decoded
   path text per update.
 
-The initial bridge encodes its JSON payload with URL-safe base64 and delivers
-it through the local `brainsurfacer:` Launch Services route. Base64 is not
-encryption, and this transport does not authenticate the sending process. The
-enrollment check, strict size and lifetime limits, and absence of commands or
-content keep its authority narrow. A packaged connector should eventually use
-an authenticated streaming IPC transport; the versioned snapshot model can
-remain the payload contract.
+The Emacs and Obsidian connectors send JSON to the embedded helper over standard
+input; the helper forwards it directly to the discovered app process through a
+local message port in BrainSurfacer's App Group namespace. This transport does
+not authenticate the sending process; its PID-derived name addresses one app
+instance but can be resolved by another process running as the same user. When
+the helper is invoked without a process ID, it instead encodes the JSON with
+URL-safe base64 and uses the local `brainsurfacer:` Launch Services route;
+base64 is not encryption. The enrollment check, strict size and lifetime
+limits, and absence of commands or content keep both transports' authority
+narrow. A future XPC transport can validate a peer audit token and code
+signature before accepting a streaming connection; the versioned snapshot
+model can remain its payload contract.
 
 The interim transport treats provider identifiers and relevance claims as
 unverified connector input. A local process can temporarily populate Live
