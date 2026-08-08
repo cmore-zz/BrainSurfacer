@@ -2,7 +2,7 @@ import BrainSurfacerModel
 import CryptoKit
 import Foundation
 
-public struct OutlineParser: Sendable {
+public struct OutlineParser: SourceDocumentParser, Sendable {
     /// Increment whenever unchanged source text can produce different entities.
     /// Persisted file fingerprints include this value to force reparsing after
     /// parser-output changes.
@@ -15,18 +15,22 @@ public struct OutlineParser: Sendable {
 
     public init() {}
 
+    public var outputRevision: Int {
+        Self.outputRevision
+    }
+
     public func parse(_ document: SourceDocument) -> [KnowledgeEntity] {
         parseResult(document).entities
     }
 
-    func excludesIndexing(_ document: SourceDocument) -> Bool {
+    public func excludesIndexing(_ document: SourceDocument) -> Bool {
         documentMetadata(
             in: sourceLines(in: document.contents),
             format: document.format
         ).excludesIndexing
     }
 
-    func parseResult(_ document: SourceDocument) -> SourceDocumentParseResult {
+    public func parseResult(_ document: SourceDocument) -> SourceDocumentParseResult {
         let lines = sourceLines(in: document.contents)
         let documentMetadata = documentMetadata(in: lines, format: document.format)
         guard !documentMetadata.excludesIndexing else {
@@ -52,7 +56,7 @@ public struct OutlineParser: Sendable {
                 id: sourceID,
                 kind: .note,
                 title: documentMetadata.title
-                    ?? document.fileURL.deletingPathExtension().lastPathComponent,
+                    ?? document.defaultTitle,
                 body: boundedDocument.value,
                 summary: summary(for: boundedDocument.value, format: document.format),
                 tags: documentMetadata.tags,
@@ -870,9 +874,4 @@ private extension OutlineParser {
             }
         }
     }
-}
-
-struct SourceDocumentParseResult: Sendable {
-    var entities: [KnowledgeEntity]
-    var wasExcludedByDocumentMetadata: Bool
 }

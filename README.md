@@ -4,8 +4,10 @@ Surface your second brain to macOS.
 
 BrainSurfacer is a native macOS 27+ utility that makes opted-in Markdown and
 Org-mode knowledge available to Spotlight, Siri, Apple Intelligence, and App
-Intents. The filesystem remains the source of truth; BrainSurfacer is neither an
-editor nor a second knowledge database.
+Intents. Standard and compound names such as `.md`, `.markdown`, `.md.txt`,
+`.markdown.txt`, `.org`, and `.org.txt` are recognized. The filesystem remains
+the source of truth; BrainSurfacer is neither an editor nor a second knowledge
+database.
 
 The product has two distinct jobs:
 
@@ -24,8 +26,8 @@ This repository contains an early, architecture-first prototype:
 
 - `BrainSurfacerModel`: platform-neutral entities and source anchors.
 - `BrainSurfacerCore`: indexing, catalog, working-set, and opener ports.
-- `BrainSurfacerFilesystem`: source documents and an initial Markdown/Org outline
-  parser.
+- `BrainSurfacerFilesystem`: source documents, a format/parser registry, and an
+  initial Markdown/Org outline parser.
 - `BrainSurfacerApple`: the macOS 27 App Intents/Core Spotlight projection.
 - `BrainSurfacerApp`: a native SwiftUI app for enrolling security-scoped source
   directories, monitoring indexing, manually reindexing, and searching the
@@ -33,8 +35,9 @@ This repository contains an early, architecture-first prototype:
 
 The app currently persists opted-in directories and lets each source choose
 both its content depth and whether discovery stays inside BrainSurfacer or also
-enrolls the source with Spotlight and Siri. It recursively scans Markdown and
-Org files, parses notes/headings/tasks with bounded section bodies, summaries,
+enrolls the source with Spotlight and Siri. It recursively scans registered
+Markdown and Org filename aliases, parses notes/headings/tasks with bounded
+section bodies, summaries,
 tags, links, planning dates, hierarchy, and precise source ranges, and submits
 them through the App Intents/Core Spotlight adapter. A versioned, rebuildable
 catalog keeps
@@ -51,8 +54,10 @@ Per-file modification-time and size fingerprints avoid reparsing unchanged
 documents across launches. Reconciliation retains the last-known-good entities
 for unreadable or malformed files, retries them on the next pass, and removes
 entities only after a complete source enumeration confirms deletion. A parser
-output revision invalidates cached fingerprints after parsing behavior changes;
-same-size edits that deliberately preserve modification time remain a known
+identifier and output revision invalidate cached fingerprints after format
+mapping or parsing behavior changes; fingerprints created before parser
+identifiers were recorded are reparsed once. Same-size edits that deliberately
+preserve modification time remain a known
 metadata-fingerprint limitation.
 Individual documents can opt out inside valid Markdown front matter with
 `brainsurfacer-index: false`, or in the Org preamble with

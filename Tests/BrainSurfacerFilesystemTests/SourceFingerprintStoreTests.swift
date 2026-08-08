@@ -17,11 +17,13 @@ func fileFingerprintsPersistPerSourceAndCanBeRemoved() async throws {
     let fingerprints = [
         firstFile: SourceFileFingerprint(
             modifiedAt: Date(timeIntervalSince1970: 100),
-            fileSize: 10
+            fileSize: 10,
+            parserIdentifier: "org.brainsurfacer.markdown-outline"
         ),
         secondFile: SourceFileFingerprint(
             modifiedAt: Date(timeIntervalSince1970: 200),
             fileSize: 20,
+            parserIdentifier: "org.brainsurfacer.org-outline",
             wasExcludedByDocumentMetadata: true
         )
     ]
@@ -40,7 +42,8 @@ func fileFingerprintsPersistPerSourceAndCanBeRemoved() async throws {
 func fingerprintsWithoutIndexingMetadataUseLegacyDefaults() throws {
     let original = SourceFileFingerprint(
         modifiedAt: Date(timeIntervalSince1970: 100),
-        fileSize: 10
+        fileSize: 10,
+        parserIdentifier: "org.brainsurfacer.markdown-outline"
     )
     let encoded = try JSONEncoder().encode(original)
     var object = try #require(
@@ -48,6 +51,7 @@ func fingerprintsWithoutIndexingMetadataUseLegacyDefaults() throws {
     )
     object.removeValue(forKey: "indexingMode")
     object.removeValue(forKey: "wasExcludedByDocumentMetadata")
+    object.removeValue(forKey: "parserIdentifier")
 
     let decoded = try JSONDecoder().decode(
         SourceFileFingerprint.self,
@@ -59,4 +63,5 @@ func fingerprintsWithoutIndexingMetadataUseLegacyDefaults() throws {
     #expect(decoded.modifiedAt == original.modifiedAt)
     #expect(decoded.fileSize == original.fileSize)
     #expect(decoded.parserRevision == original.parserRevision)
+    #expect(decoded.parserIdentifier == SourceFileFingerprint.legacyParserIdentifier)
 }

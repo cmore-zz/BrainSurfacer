@@ -117,6 +117,22 @@ invariants.
 - Evaluate interaction donation and future general-purpose relevant-entity
   contexts independently from permanent indexing.
 
+## 10. Format adapters and editing foundations *(in progress)*
+
+- Select format adapters through a parser registry with stable identifiers,
+  revisions, and longest-suffix matching. *(implemented)*
+- Recognize compound Markdown and Org aliases including `.md.txt`,
+  `.markdown.txt`, and `.org.txt` without admitting arbitrary `.txt` files.
+  *(implemented)*
+- Add fixture-driven vBulletin/BBCode ingestion that degrades safely for plain
+  text and preserves quotes, links, lists, and source ranges.
+- Add optional per-source suffix-to-format overrides after the built-in corpus
+  demonstrates where filename inference is insufficient.
+- Evaluate HTML ingestion separately from live-web capture or rendering.
+- Keep indexing adapters independent from any future lossless, editable syntax
+  tree; a multi-format editor requires round-trip serialization, incremental
+  edits, undo, autosave, and conflict handling beyond the indexing contract.
+
 ## Platform probes that continue throughout
 
 - Compare Apple Notes, unmodified Markdown files, ordinary Core Spotlight

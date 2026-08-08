@@ -55,6 +55,131 @@ func scannerRecursivelyParsesSupportedKnowledgeFiles() async throws {
 }
 
 @Test
+func scannerUsesLongestRegisteredSuffixForCompoundKnowledgeFiles() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerCompoundFormats-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    let markdown = root.appending(path: "Plan.MD.TXT")
+    let longMarkdown = root.appending(path: "Reference.markdown.txt")
+    let org = root.appending(path: "Agenda.org.txt")
+    try "# Markdown Section".write(to: markdown, atomically: true, encoding: .utf8)
+    try "# Reference Section".write(to: longMarkdown, atomically: true, encoding: .utf8)
+    try "* Org Section".write(to: org, atomically: true, encoding: .utf8)
+    try "ordinary text".write(
+        to: root.appending(path: "Ignored.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "# Editor backup".write(
+        to: root.appending(path: "Backup.md.txt#"),
+        atomically: true,
+        encoding: .utf8
+    )
+
+    let result = try await SourceDirectoryScanner().scan(SourceDirectory(url: root))
+
+    #expect(result.fileCount == 3)
+    #expect(result.parsedFileCount == 3)
+    #expect(result.diagnostics.isEmpty)
+    #expect(result.entities.contains {
+        $0.source.fileURL.standardizedFileURL == markdown.standardizedFileURL
+            && $0.title == "Plan"
+    })
+    #expect(result.entities.contains {
+        $0.source.fileURL.standardizedFileURL == longMarkdown.standardizedFileURL
+            && $0.title == "Reference"
+    })
+    #expect(result.entities.contains {
+        $0.source.fileURL.standardizedFileURL == org.standardizedFileURL
+            && $0.title == "Agenda"
+    })
+    #expect(result.entities.contains { $0.title == "Markdown Section" })
+    #expect(result.entities.contains { $0.title == "Reference Section" })
+    #expect(result.entities.contains { $0.title == "Org Section" })
+    #expect(result.fingerprints[markdown.standardizedFileURL]?.parserIdentifier
+        == "org.brainsurfacer.markdown-outline")
+    #expect(result.fingerprints[org.standardizedFileURL]?.parserIdentifier
+        == "org.brainsurfacer.org-outline")
+}
+
+@Test
+func formatRegistryNormalizesAliasesAndPrefersTheLongestSuffix() throws {
+    let parser = OutlineParser()
+    let registry = SourceFormatRegistry(
+        registrations: [
+            SourceFormatRegistration(
+                parserIdentifier: "test.text",
+                format: .markdown,
+                filenameSuffixes: ["txt", ".TXT", "  "],
+                parser: parser
+            ),
+            SourceFormatRegistration(
+                parserIdentifier: "test.markdown-text",
+                format: .markdown,
+                filenameSuffixes: ["md.txt"],
+                parser: parser
+            )
+        ]
+    )
+
+    let match = try #require(
+        registry.match(for: URL(fileURLWithPath: "/notes/Plan.MD.TXT"))
+    )
+    #expect(match.registration.parserIdentifier == "test.markdown-text")
+    #expect(match.filenameSuffix == ".md.txt")
+    #expect(registry.registrations[0].filenameSuffixes == [".txt"])
+}
+
+@Test
+func scannerAcceptsARegisteredParserWithoutScannerChanges() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerRegisteredParser-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    let registeredFile = root.appending(path: "Custom.note")
+    try "# Registered format".write(
+        to: registeredFile,
+        atomically: true,
+        encoding: .utf8
+    )
+    try "# Not registered here".write(
+        to: root.appending(path: "Ignored.md"),
+        atomically: true,
+        encoding: .utf8
+    )
+    let registration = SourceFormatRegistration(
+        parserIdentifier: "test.custom-note",
+        format: .markdown,
+        filenameSuffixes: [".note"],
+        parser: RegisteredTestParser()
+    )
+
+    let result = try await SourceDirectoryScanner(
+        formatRegistry: SourceFormatRegistry(registrations: [registration])
+    ).scan(SourceDirectory(url: root))
+
+    #expect(result.fileCount == 1)
+    #expect(result.entities.contains { $0.title == "Custom" })
+    #expect(result.entities.contains { $0.title == "Registered format" })
+    #expect(result.fingerprints[registeredFile.standardizedFileURL]?.parserIdentifier
+        == "test.custom-note")
+    #expect(result.fingerprints[registeredFile.standardizedFileURL]?.parserRevision == 41)
+}
+
+@Test
 func scannerReusesMetadataExcludedFilesAndReindexesThemAfterOptIn() async throws {
     let root = FileManager.default.temporaryDirectory
         .appending(path: "BrainSurfacerDocumentOptOut-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -239,6 +364,7 @@ func scannerReusesUnchangedFilesRetainsFailuresAndConfirmsDeletions() async thro
         SourceFileFingerprint(
             modifiedAt: $0.modifiedAt,
             fileSize: $0.fileSize,
+            parserIdentifier: $0.parserIdentifier,
             parserRevision: OutlineParser.outputRevision - 1
         )
     }
@@ -687,6 +813,18 @@ private func scanDuplicateIDFixture(
         return entities
     }
     return try await scanner.scan(source)
+}
+
+private struct RegisteredTestParser: SourceDocumentParser {
+    let outputRevision = 41
+
+    func parseResult(_ document: SourceDocument) -> SourceDocumentParseResult {
+        OutlineParser().parseResult(document)
+    }
+
+    func excludesIndexing(_ document: SourceDocument) -> Bool {
+        OutlineParser().excludesIndexing(document)
+    }
 }
 
 private func makeScannerFixture(fileCount: Int) throws -> URL {
