@@ -250,10 +250,12 @@ relaunch can recover them for no longer than the provider-supplied TTL. The
 store never copies document content and an empty snapshot clears the provider.
 Intent execution resolves the still-live anchors against the current catalog
 and bounds the returned item count and excerpts. This does not donate the
-working set to Spotlight or extend its lifetime. Neither local transport
-authenticates the sender; the custom-URL fallback additionally encodes its
-payload as URL-safe base64, which is not encryption. Authenticated streaming IPC
-remains a later transport improvement.
+working set to Spotlight or extend its lifetime. A PID-derived port name selects
+one app instance but does not authenticate the sender: another process running
+as the logged-in user may resolve the name and submit a valid bounded update.
+The custom-URL fallback additionally encodes its payload as URL-safe base64,
+which is not encryption. A future XPC transport can validate the peer's audit
+token and code signature before accepting a streaming connection.
 
 ### Apple platform
 
@@ -312,8 +314,9 @@ fixed entity, search, and bounded context routes and never accept commands. The
 editor helpers normally carry the same bounded context value over a per-process
 local message port in BrainSurfacer’s App Group namespace, avoiding Launch
 Services activation and window ordering while remaining compatible with the
-macOS App Sandbox. An
-entity route resolves its identifier exclusively against the enrolled local
+macOS App Sandbox. The namespace makes the port reachable; it does not restrict
+it to BrainSurfacer's embedded helper. An entity route resolves its identifier
+exclusively against the enrolled local
 catalog before opening its source in the configured editor. A search route only
 presents a query in BrainSurfacer. A context route may carry file anchors, but
 the app filters them through the current source enrollments and gives them only

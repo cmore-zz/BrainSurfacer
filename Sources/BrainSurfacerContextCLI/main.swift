@@ -14,8 +14,8 @@ struct BrainSurfacerContextCommand {
             }
 
             let update = try arguments.editorContextUpdate()
-            let url = BrainSurfacerDeepLink.context(update).url
             if arguments.onlyPrintsURL {
+                let url = BrainSurfacerDeepLink.context(update).url
                 print(url.absoluteString)
                 return
             }
@@ -29,6 +29,7 @@ struct BrainSurfacerContextCommand {
                 return
             }
 
+            let url = BrainSurfacerDeepLink.context(update).url
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
             process.arguments = arguments.openArguments(for: url)

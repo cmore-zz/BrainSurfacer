@@ -62,9 +62,11 @@ without opening BrainSurfacer.
 `--process PID` sends the update to that already-running BrainSurfacer through
 a per-process local message port. This path neither activates nor reorders the
 application. The port uses BrainSurfacer’s App Group namespace so the sandboxed
-app can receive messages from its bundled nonsandboxed helper. Connectors pair
-it with `--application /path/to/BrainSurfacer.app`, which verifies that the PID
-still belongs to the expected build. Without `--process`, the standalone helper
+app can receive messages from its bundled nonsandboxed helper. The namespace is
+not caller authentication: other processes running as the logged-in user may
+also resolve the port. Connectors pair `--process` with
+`--application /path/to/BrainSurfacer.app`, which verifies that the PID still
+belongs to the expected build. Without `--process`, the standalone helper
 retains its `open -g` URL handoff for manual use and opt-in launch-on-context
 compatibility.
 
@@ -151,13 +153,15 @@ BrainSurfacer catalog already contains a canonical entity for that source.
 The Emacs and Obsidian connectors send JSON to the embedded helper over standard
 input; the helper forwards it directly to the discovered app process through a
 local message port in BrainSurfacer's App Group namespace. This transport does
-not authenticate the sending process. When the helper is invoked without a
-process ID, it instead encodes the JSON with URL-safe base64 and uses the local
-`brainsurfacer:` Launch Services route; base64 is not encryption. The enrollment
-check, strict size and lifetime limits, and absence of commands or content keep
-both transports' authority narrow. A packaged connector should eventually use
-an authenticated streaming IPC transport; the versioned snapshot model can
-remain the payload contract.
+not authenticate the sending process; its PID-derived name addresses one app
+instance but can be resolved by another process running as the same user. When
+the helper is invoked without a process ID, it instead encodes the JSON with
+URL-safe base64 and uses the local `brainsurfacer:` Launch Services route;
+base64 is not encryption. The enrollment check, strict size and lifetime
+limits, and absence of commands or content keep both transports' authority
+narrow. A future XPC transport can validate a peer audit token and code
+signature before accepting a streaming connection; the versioned snapshot
+model can remain its payload contract.
 
 The interim transport treats provider identifiers and relevance claims as
 unverified connector input. A local process can temporarily populate Live
