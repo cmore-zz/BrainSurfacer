@@ -96,7 +96,9 @@ the shared **BrainSurfacer** scheme and **My Mac**, then Run. The Swift package
 remains the source of the library modules and command-line test workflow; the
 Xcode application target supplies the launchable `.app`.
 Its build also embeds `brainsurfacer-context` under `Contents/Helpers` for local
-editor connectors.
+editor connectors. Select a development team that can sign the
+`group.org.brainsurfacer.BrainSurfacer` App Group used for nonactivating local
+context delivery.
 
 See [Architecture](Docs/ARCHITECTURE.md) for the reconciled design and
 [Roadmap](Docs/ROADMAP.md) for the next vertical slices.

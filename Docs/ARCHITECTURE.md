@@ -305,7 +305,11 @@ stale projected path from becoming a second identity system and lets catalog
 reconciliation follow moves and renames.
 
 Incoming custom-scheme URLs are untrusted navigation. Handlers accept only the
-fixed entity, search, and bounded context routes and never accept commands. An
+fixed entity, search, and bounded context routes and never accept commands. The
+editor helpers normally carry the same bounded context value over a per-process
+local message port in BrainSurfacer’s App Group namespace, avoiding Launch
+Services activation and window ordering while remaining compatible with the
+macOS App Sandbox. An
 entity route resolves its identifier exclusively against the enrolled local
 catalog before opening its source in the configured editor. A search route only
 presents a query in BrainSurfacer. A context route may carry file anchors, but
@@ -389,9 +393,10 @@ indexing authority.
 The macOS app embeds the connector helper under `Contents/Helpers`. Emacs finds
 the running app through its full process command, and the Obsidian connector
 uses the same discovery boundary. Each derives the helper path from that actual
-bundle and caches discovery. This supports renamed, installed, and Xcode Debug
-bundles without a fixed `/Applications` assumption and avoids launching the app
-merely because editor state changed.
+bundle, caches discovery, and addresses the app’s local message port by process
+ID. This supports renamed, installed, and Xcode Debug bundles without a fixed
+`/Applications` assumption and avoids launching or reordering the app merely
+because editor state changed.
 
 ## Identity and storage
 

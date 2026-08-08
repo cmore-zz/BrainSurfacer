@@ -59,9 +59,14 @@ should be stable and specific to the connector.
 For development and protocol inspection, `--print-url` prints the handoff URL
 without opening BrainSurfacer.
 
-`--application /path/to/BrainSurfacer.app` directs the handoff URL to that exact
-bundle with `open -a`. Without it, the standalone helper retains generic URL
-scheme dispatch for compatibility.
+`--process PID` sends the update to that already-running BrainSurfacer through
+a per-process local message port. This path neither activates nor reorders the
+application. The port uses BrainSurfacer’s App Group namespace so the sandboxed
+app can receive messages from its bundled nonsandboxed helper. Connectors pair
+it with `--application
+/path/to/BrainSurfacer.app`, which verifies that the PID still belongs to the
+expected build. Without `--process`, the standalone helper retains its
+`open -g` URL handoff for manual use and opt-in launch-on-context compatibility.
 
 The macOS application target builds the same helper implementation and embeds
 it at `BrainSurfacer.app/Contents/Helpers/brainsurfacer-context`, giving editor
@@ -87,12 +92,11 @@ By default the package scans full process command lines for a running
 `*.app/Contents/MacOS/BrainSurfacer`, derives that bundle's helper path, and
 caches positive or negative discovery for ten seconds. A cached running app is
 validated through its process ID without another `ps` scan. It does nothing
-while the app is absent. The discovered bundle is passed back to the helper so
-Launch Services targets that copy rather than choosing another installed or
-DerivedData build. BrainSurfacer uses a unique application window, so repeated
-replacement snapshots are delivered to the existing UI instead of creating a
-new window for every editor change. An explicit helper setting and opt-in
-launch-on-context mode cover unusual installations. See the
+while the app is absent. The discovered process and bundle are passed back to
+the helper for direct, nonactivating local delivery to that exact build.
+Repeated replacement snapshots therefore do not open or reorder BrainSurfacer
+windows. An explicit helper setting and opt-in launch-on-context mode cover
+unusual installations. See the
 [Emacs connector guide](../Connectors/Emacs/README.md) for setup, customization,
 diagnostics, tests, and current limitations.
 
@@ -120,9 +124,9 @@ explicit Emacs or Obsidian opener setting always wins over live context.
 
 Like the Emacs connector, it discovers the helper inside the actually running
 BrainSurfacer bundle, validates cached positive discovery through the process
-ID, passes the bundle back with `--application`, and does nothing while the app
-is absent. An optional absolute helper path handles unusual builds without
-allowing workspace activity to launch BrainSurfacer. See the
+ID, and passes that PID and bundle back for direct local delivery. It does
+nothing while the app is absent. An optional absolute helper path handles
+unusual builds without allowing workspace activity to launch BrainSurfacer. See the
 [Obsidian connector guide](../Connectors/Obsidian/README.md) for development
 installation, diagnostics, tests, and current limitations.
 

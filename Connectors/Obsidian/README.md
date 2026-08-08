@@ -63,9 +63,10 @@ BrainSurfacer.app/Contents/Helpers/brainsurfacer-context
 
 Positive and negative discovery is cached for ten seconds. A cached positive
 result retains the app process ID and validates that it is still alive before
-reuse. Every helper invocation targets the discovered bundle explicitly, so a
-DerivedData build does not accidentally hand the update to another registered
-copy. Obsidian activity never launches BrainSurfacer.
+reuse. Every helper invocation sends to that process’s local message port and
+validates its bundle, so a DerivedData build does not accidentally hand the
+update to another copy. Obsidian activity neither launches nor reorders
+BrainSurfacer.
 
 An absolute helper path can be configured under **Settings → BrainSurfacer Live
 Context**. The plugin still requires a running BrainSurfacer app so it can

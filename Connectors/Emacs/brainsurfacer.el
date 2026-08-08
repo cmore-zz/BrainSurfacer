@@ -366,8 +366,11 @@ document-count and decoded-path-byte limits enforced by the helper."
           (kill-buffer buffer))))))
 
 (defun brainsurfacer--helper-arguments ()
-  "Return helper arguments targeting the discovered application bundle."
+  "Return helper arguments targeting the discovered application process."
   (append
+   (when-let* ((process-id
+                (plist-get brainsurfacer--discovery-cache :pid)))
+     (list "--process" (number-to-string process-id)))
    (when-let* ((application
                 (plist-get brainsurfacer--discovery-cache :application)))
      (list "--application" application))

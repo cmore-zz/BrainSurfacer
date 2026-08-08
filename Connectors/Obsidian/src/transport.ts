@@ -44,7 +44,7 @@ function invokeHelper(target: HelperTarget, payload: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(
       target.command,
-      ["--application", target.bundlePath, "--input", "-"],
+      helperArguments(target),
       { stdio: ["pipe", "ignore", "pipe"] },
     );
     const errorChunks: Buffer[] = [];
@@ -73,6 +73,17 @@ function invokeHelper(target: HelperTarget, payload: string): Promise<void> {
     });
     child.stdin.end(payload, "utf8");
   });
+}
+
+export function helperArguments(target: HelperTarget): string[] {
+  return [
+    "--process",
+    String(target.pid),
+    "--application",
+    target.bundlePath,
+    "--input",
+    "-",
+  ];
 }
 
 function closeMessage(status: number | null, signal: NodeJS.Signals | null): string {
