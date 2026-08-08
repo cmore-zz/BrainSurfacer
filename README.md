@@ -100,7 +100,9 @@ Xcode application target supplies the launchable `.app`.
 Its build also embeds `brainsurfacer-context` under `Contents/Helpers` for local
 editor connectors. Select a development team that can sign the
 `group.org.brainsurfacer.BrainSurfacer` App Group used for nonactivating local
-context delivery.
+context delivery. The application target enables the App Groups capability and
+registers its groups during automatic signing, so a provisioning refresh should
+include that group in the embedded profile as well as the signed entitlements.
 
 See [Architecture](Docs/ARCHITECTURE.md) for the reconciled design and
 [Roadmap](Docs/ROADMAP.md) for the next vertical slices.

@@ -118,18 +118,22 @@ entity summary and `textContent` from its bounded body.
   extension warnings for the app path, but they were nonfatal in this state.
 - The beta 4 `SetStoreUpdateService` rejected Indexed Entity donations from
   both Debug and Release Apple Development-signed builds with
-  `CSIndexErrorDomain -1000`. Independent signature validation succeeded.
-  Adding the standard application/team identifier entitlements caused Xcode to
-  embed a development provisioning profile and let the service identify the
-  process, but it still rejected the donation as “not properly entitled.” A
-  plain Core Spotlight item and an eligible `NSUserActivity` were routed
-  through the same failing service, and another third-party app produced the
-  same diagnostic. Apple documents no extra capability for `IndexedEntity`;
-  this is treated as a seed-specific bridge failure, not as an entitlement to
-  guess or request. The signing and fallback experiments are not retained.
+  `CSIndexErrorDomain -1000`. A later audit found that the installed build's
+  effective signature contained the App Group while its embedded provisioning
+  profile did not. The Xcode target now explicitly enables the App Groups
+  capability and sets `REGISTER_APP_GROUPS=YES`; automatic signing regenerated
+  a profile containing `group.org.brainsurfacer.BrainSurfacer`. The freshly
+  signed and installed app still received the same `SetStoreUpdateService`
+  failure for its nonempty current-context donation. A plain Core Spotlight
+  item and an eligible `NSUserActivity` were routed through the same failing
+  service, and another third-party app produced the same diagnostic. Apple
+  documents no additional capability for `IndexedEntity`; this remains a
+  seed-specific bridge failure, not an entitlement to guess or request.
 - Those service errors were not conclusive for the installed app's effective
   Siri state. After the bounded, expiring current-context entity was installed
   and Emacs refreshed its working set, Siri successfully answered the natural
-  “what’s open in BrainSurfacer?” query. Keep the failed-development-donation
-  observations as beta diagnostics, but treat the trusted installed-app test as
-  the end-to-end result for this seed.
+  “what’s open in BrainSurfacer?” query during an earlier test. Routing was not
+  stable: an August 8 retest again failed even though Emacs delivered a nonempty
+  snapshot, `linkd` accepted the installed app and interpolated its shortcuts,
+  and the app attempted the bounded donation. Keep both outcomes as beta
+  diagnostics rather than treating either one as a reliable contract.
