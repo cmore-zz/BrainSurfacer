@@ -239,18 +239,21 @@ an unrelated visible document as a search result.
 
 The first cross-process connector contract is a versioned, bounded
 `EditorContextUpdate`: a complete snapshot of file anchors marked selected,
-visible, or open. A small command-line bridge delivers the snapshot through a
-local custom URL. The app validates its version, age, expiration, shape, and
-size, then discards every anchor outside a currently enrolled source before
-passing it to `ContextCoordinator`. The accepted path-only snapshots are also
-atomically persisted in a separate transient store so a background App Intent
-or an app relaunch can recover them for no longer than the provider-supplied
-TTL. The store never copies document content and an empty snapshot clears the
-provider. Intent execution resolves the still-live anchors against the current
-catalog and bounds the returned item count and excerpts. This does not donate
-the working set to Spotlight or extend its lifetime. The custom-URL payload is
-URL-safe base64, not encryption, and it does not authenticate the sender;
-authenticated streaming IPC remains a later transport improvement.
+visible, or open. A small command-line bridge normally delivers the snapshot to
+the exact running app through its per-process local message port. Manual helper
+invocations without a process ID retain a custom-URL fallback. The app validates
+the update's version, age, expiration, shape, and size, then discards every
+anchor outside a currently enrolled source before passing it to
+`ContextCoordinator`. The accepted path-only snapshots are also atomically
+persisted in a separate transient store so a background App Intent or an app
+relaunch can recover them for no longer than the provider-supplied TTL. The
+store never copies document content and an empty snapshot clears the provider.
+Intent execution resolves the still-live anchors against the current catalog
+and bounds the returned item count and excerpts. This does not donate the
+working set to Spotlight or extend its lifetime. Neither local transport
+authenticates the sender; the custom-URL fallback additionally encodes its
+payload as URL-safe base64, which is not encryption. Authenticated streaming IPC
+remains a later transport improvement.
 
 ### Apple platform
 

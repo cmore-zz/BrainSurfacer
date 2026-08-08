@@ -73,11 +73,13 @@ remain in memory, rerank matched local results, and appear in an App
 Entity-annotated Live Context view. A single-file
 [Emacs connector](Connectors/Emacs/README.md) now reports file-visiting Org and
 Markdown selected, visible, and open buffers through the helper embedded in the
-app bundle. A desktop-only
+app bundle. The connector targets the discovered app process over a local
+message port, so reporting does not launch, activate, or reorder BrainSurfacer.
+A desktop-only
 [Obsidian connector](Connectors/Obsidian/README.md) reports the active Markdown
 view, other displayed panes, and background Markdown tabs through the same
-contract. Deeper editor-native anchors and an authenticated streaming transport
-remain ahead. See
+contract and PID-targeted transport. Deeper editor-native anchors and an
+authenticated streaming transport remain ahead. See
 [Live editor context](Docs/EDITOR_CONTEXT.md) for the connector contract and
 privacy boundary. SDK-specific findings are recorded in
 [Platform probes](Docs/PLATFORM_PROBES.md).
