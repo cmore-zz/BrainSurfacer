@@ -3,7 +3,7 @@ import CryptoKit
 import Foundation
 
 public struct BBCodeParser: SourceDocumentParser, Sendable {
-    public static let outputRevision = 1
+    public static let outputRevision = 2
 
     public init() {}
 
@@ -145,7 +145,12 @@ public struct BBCodeParser: SourceDocumentParser, Sendable {
               let titleRange = Range(match.range(at: 1), in: line) else {
             return nil
         }
-        let title = render(String(line[titleRange])).text
+        let rawTitle = String(line[titleRange])
+        let rawTitleRange = NSRange(rawTitle.startIndex..., in: rawTitle)
+        guard Expressions.boldBoundary.firstMatch(in: rawTitle, range: rawTitleRange) == nil else {
+            return nil
+        }
+        let title = render(rawTitle).text
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty,
               title.contains(where: { $0.isLetter || $0.isNumber }) else {
@@ -201,10 +206,13 @@ public struct BBCodeParser: SourceDocumentParser, Sendable {
         var index = source.startIndex
 
         func appendLink(_ value: String) {
-            let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = decodedHTMLEntities(in: value)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
             let linkValue: String
-            if value.contains("@"), !value.contains("://"), !value.hasPrefix("mailto:") {
+            if value.contains("@"),
+               !value.contains("://"),
+               !value.lowercased().hasPrefix("mailto:") {
                 linkValue = "mailto:\(value)"
             } else {
                 linkValue = value
@@ -226,20 +234,29 @@ public struct BBCodeParser: SourceDocumentParser, Sendable {
         }
 
         while index < source.endIndex {
-            guard source[index] == "[",
-                  let closingBracket = source[index...].firstIndex(of: "]"),
-                  !source[index ..< closingBracket].contains(where: {
-                      $0 == "\n" || $0 == "\r"
-                  }) else {
+            guard source[index] == "[" else {
                 output.append(source[index])
                 index = source.index(after: index)
                 continue
             }
+            let searchStart = source.index(after: index)
+            guard let boundary = source[searchStart...].firstIndex(where: {
+                $0 == "[" || $0 == "]" || $0 == "\n" || $0 == "\r"
+            }) else {
+                output += source[index...]
+                break
+            }
+            guard source[boundary] == "]" else {
+                output += source[index ..< boundary]
+                index = boundary
+                continue
+            }
+            let closingBracket = boundary
             let afterTag = source.index(after: closingBracket)
             let rawTag = String(source[index ..< afterTag])
             guard let tag = parseTag(rawTag) else {
-                output.append(source[index])
-                index = source.index(after: index)
+                output += rawTag
+                index = afterTag
                 continue
             }
 
@@ -384,6 +401,7 @@ public struct BBCodeParser: SourceDocumentParser, Sendable {
         }
         var name = rawName.trimmingCharacters(in: .whitespaces).lowercased()
         if isClosing, name == "spoilera" {
+            // Some historical vBulletin exports close [spoiler] with this typo.
             name = "spoiler"
         }
         guard name == "*" || name.allSatisfy({ $0.isLetter || $0.isNumber }) else {
@@ -419,15 +437,10 @@ public struct BBCodeParser: SourceDocumentParser, Sendable {
     }
 
     private func cleanedRenderedText(_ source: String) -> String {
-        let normalized = source
-            .replacingOccurrences(of: "\r\n", with: "\n")
+        let normalized = decodedHTMLEntities(
+            in: source.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
-            .replacingOccurrences(of: "&nbsp;", with: " ", options: .caseInsensitive)
-            .replacingOccurrences(of: "&quot;", with: "\"", options: .caseInsensitive)
-            .replacingOccurrences(of: "&#39;", with: "'", options: .caseInsensitive)
-            .replacingOccurrences(of: "&lt;", with: "<", options: .caseInsensitive)
-            .replacingOccurrences(of: "&gt;", with: ">", options: .caseInsensitive)
-            .replacingOccurrences(of: "&amp;", with: "&", options: .caseInsensitive)
+        )
         var lines: [String] = []
         var consecutiveEmptyLines = 0
         for rawLine in normalized.split(
@@ -450,6 +463,16 @@ public struct BBCodeParser: SourceDocumentParser, Sendable {
         }
         return lines.joined(separator: "\n")
             .trimmingCharacters(in: .newlines)
+    }
+
+    private func decodedHTMLEntities(in source: String) -> String {
+        source
+            .replacingOccurrences(of: "&nbsp;", with: " ", options: .caseInsensitive)
+            .replacingOccurrences(of: "&quot;", with: "\"", options: .caseInsensitive)
+            .replacingOccurrences(of: "&#39;", with: "'", options: .caseInsensitive)
+            .replacingOccurrences(of: "&lt;", with: "<", options: .caseInsensitive)
+            .replacingOccurrences(of: "&gt;", with: ">", options: .caseInsensitive)
+            .replacingOccurrences(of: "&amp;", with: "&", options: .caseInsensitive)
     }
 
     private func summary(for text: String) -> String? {
@@ -597,7 +620,10 @@ private extension BBCodeParser {
             #"^\s*\[b\](.+)\[/b\]\s*$"#,
             options: [.caseInsensitive]
         )
-        static let tag = expression(#"\[(?:/)?(?:[[:alnum:]]+|\*)(?:=[^\]]*)?/?\]"#)
+        static let boldBoundary = expression(#"\[/?b\]"#, options: [.caseInsensitive])
+        static let tag = expression(
+            #"\[[ \t]*(?:/[ \t]*)?(?:[[:alnum:]]+|\*)[ \t]*(?:=[ \t]*[^\]\r\n]*)?/?[ \t]*\]"#
+        )
         static let bareURL = expression(#"\b((?:https?|ftp)://[^\s<>\)\]\"]+)"#)
         static let bareEmail = expression(
             #"\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b"#,

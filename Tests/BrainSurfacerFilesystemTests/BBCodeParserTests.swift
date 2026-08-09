@@ -70,6 +70,55 @@ func bbcodeParserRecoversConservativelyFromMalformedAndUnknownMarkup() throws {
 }
 
 @Test
+func bbcodeParserRequiresOneBoldSpanAndAcceptsSpacedTags() throws {
+    let document = SourceDocument(
+        fileURL: URL(fileURLWithPath: "/tmp/Spaced.bb.txt"),
+        format: .bbcode,
+        filenameSuffix: ".bb.txt",
+        contents: """
+        [b]Alpha[/b] ordinary prose [b]Beta[/b]
+        [quote = Alice]
+        [b]Quoted emphasis[/b]
+        [/quote ]
+        [b]Actual [i]heading[/i][/b]
+        [url = https://example.com/search?a=1&amp;b=2]Search[/url ]
+        """
+    )
+
+    let entities = BBCodeParser().parseResult(document).entities
+    let note = try #require(entities.first)
+    let heading = try #require(entities.first { $0.title == "Actual heading" })
+
+    #expect(entities.count == 2)
+    #expect(!entities.contains { $0.title == "Alpha ordinary prose Beta" })
+    #expect(!entities.contains { $0.title == "Quoted emphasis" })
+    #expect(note.body?.contains("Alpha ordinary prose Beta") == true)
+    #expect(note.body?.contains("Quote from Alice:") == true)
+    #expect(note.body?.contains("Quoted emphasis") == true)
+    #expect(heading.links == [URL(string: "https://example.com/search?a=1&b=2")!])
+}
+
+@Test
+func bbcodeParserHandlesBracketDenseInputInLinearPasses() throws {
+    let bracketRun = String(
+        repeating: "[",
+        count: OutlineParser.maximumSectionBodyBytes
+    )
+    let document = SourceDocument(
+        fileURL: URL(fileURLWithPath: "/tmp/Brackets.bb.txt"),
+        format: .bbcode,
+        filenameSuffix: ".bb.txt",
+        contents: bracketRun
+    )
+
+    let entities = BBCodeParser().parseResult(document).entities
+    let note = try #require(entities.first)
+
+    #expect(entities.count == 1)
+    #expect(note.body == bracketRun)
+}
+
+@Test
 func scannerRegistersBBCodeWithoutAdmittingBackupsOrPlainText() async throws {
     let root = FileManager.default.temporaryDirectory
         .appending(path: "BrainSurfacerBBCode-\(UUID().uuidString)", directoryHint: .isDirectory)
