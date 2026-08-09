@@ -53,6 +53,7 @@ public struct SourceDirectoryScanner: Sendable {
 
     private let maximumConcurrentFileParses: Int
     private let enumerationSnapshot: SourceDirectoryEnumerationSnapshot?
+    private let formatRegistry: SourceFormatRegistry
     private let fileParser: @Sendable (SourceFileParseRequest) async throws -> SourceDocumentParseResult
 
     public init(
@@ -62,7 +63,20 @@ public struct SourceDirectoryScanner: Sendable {
         self.init(
             maximumConcurrentFileParses: maximumConcurrentFileParses,
             enumerationSnapshot: nil,
-            parsedFileProvider: Self.productionFileParser(parser: parser)
+            formatRegistry: .standard(parser: parser),
+            parsedFileProvider: Self.productionFileParser()
+        )
+    }
+
+    public init(
+        formatRegistry: SourceFormatRegistry,
+        maximumConcurrentFileParses: Int = 4
+    ) {
+        self.init(
+            maximumConcurrentFileParses: maximumConcurrentFileParses,
+            enumerationSnapshot: nil,
+            formatRegistry: formatRegistry,
+            parsedFileProvider: Self.productionFileParser()
         )
     }
 
@@ -73,6 +87,7 @@ public struct SourceDirectoryScanner: Sendable {
         self.init(
             maximumConcurrentFileParses: maximumConcurrentFileParses,
             enumerationSnapshot: nil,
+            formatRegistry: .standard(),
             parsedFileProvider: { request in
                 SourceDocumentParseResult(
                     entities: try await fileParser(request),
@@ -90,17 +105,20 @@ public struct SourceDirectoryScanner: Sendable {
         self.init(
             maximumConcurrentFileParses: maximumConcurrentFileParses,
             enumerationSnapshot: enumerationSnapshot,
-            parsedFileProvider: Self.productionFileParser(parser: parser)
+            formatRegistry: .standard(parser: parser),
+            parsedFileProvider: Self.productionFileParser()
         )
     }
 
     private init(
         maximumConcurrentFileParses: Int,
         enumerationSnapshot: SourceDirectoryEnumerationSnapshot?,
+        formatRegistry: SourceFormatRegistry,
         parsedFileProvider: @escaping @Sendable (SourceFileParseRequest) async throws -> SourceDocumentParseResult
     ) {
         self.maximumConcurrentFileParses = max(1, maximumConcurrentFileParses)
         self.enumerationSnapshot = enumerationSnapshot
+        self.formatRegistry = formatRegistry
         self.fileParser = parsedFileProvider
     }
 
@@ -273,7 +291,7 @@ public struct SourceDirectoryScanner: Sendable {
         result: inout SourceFileEnumeration
     ) throws {
         try Task.checkCancellation()
-        guard let format = format(for: candidateURL) else {
+        guard let formatMatch = formatRegistry.match(for: candidateURL) else {
             return
         }
         let fileURL = candidateURL.standardizedFileURL
@@ -293,6 +311,7 @@ public struct SourceDirectoryScanner: Sendable {
             result.fileCount += 1
             let currentFingerprint = fingerprint(
                 from: values,
+                formatRegistration: formatMatch.registration,
                 indexingMode: indexingMode,
                 wasExcludedByDocumentMetadata: previousFingerprints[fileURL]?
                     .wasExcludedByDocumentMetadata ?? false
@@ -312,7 +331,8 @@ public struct SourceDirectoryScanner: Sendable {
             result.pendingFiles.append(
                 SourceFileParseRequest(
                     fileURL: fileURL,
-                    format: format,
+                    formatRegistration: formatMatch.registration,
+                    filenameSuffix: formatMatch.filenameSuffix,
                     modifiedAt: values.contentModificationDate,
                     currentFingerprint: currentFingerprint,
                     previousFingerprint: previousFingerprints[fileURL],
@@ -397,6 +417,7 @@ public struct SourceDirectoryScanner: Sendable {
 
     private func fingerprint(
         from values: URLResourceValues,
+        formatRegistration: SourceFormatRegistration,
         indexingMode: SourceIndexingMode,
         wasExcludedByDocumentMetadata: Bool
     ) -> SourceFileFingerprint? {
@@ -407,6 +428,8 @@ public struct SourceDirectoryScanner: Sendable {
         return SourceFileFingerprint(
             modifiedAt: modifiedAt,
             fileSize: Int64(fileSize),
+            parserIdentifier: formatRegistration.parserIdentifier,
+            parserRevision: formatRegistration.parserRevision,
             indexingMode: indexingMode,
             wasExcludedByDocumentMetadata: wasExcludedByDocumentMetadata
         )
@@ -461,20 +484,8 @@ public struct SourceDirectoryScanner: Sendable {
         return fileComponents.dropFirst(rootComponents.count).joined(separator: "/")
     }
 
-    private func format(for fileURL: URL) -> SourceDocument.Format? {
-        switch fileURL.pathExtension.lowercased() {
-        case "md", "markdown":
-            .markdown
-        case "org":
-            .org
-        default:
-            nil
-        }
-    }
-
-    private static func productionFileParser(
-        parser: OutlineParser
-    ) -> @Sendable (SourceFileParseRequest) async throws -> SourceDocumentParseResult {
+    private static func productionFileParser()
+        -> @Sendable (SourceFileParseRequest) async throws -> SourceDocumentParseResult {
         { request in
             try Task.checkCancellation()
             let data = try Data(contentsOf: request.fileURL)
@@ -483,10 +494,11 @@ public struct SourceDirectoryScanner: Sendable {
                 let lossyDocument = SourceDocument(
                     fileURL: request.fileURL,
                     format: request.format,
+                    filenameSuffix: request.filenameSuffix,
                     contents: String(decoding: data, as: UTF8.self),
                     modifiedAt: request.modifiedAt
                 )
-                if parser.excludesIndexing(lossyDocument) {
+                if request.formatRegistration.excludesIndexing(lossyDocument) {
                     return SourceDocumentParseResult(
                         entities: [],
                         wasExcludedByDocumentMetadata: true
@@ -494,10 +506,11 @@ public struct SourceDirectoryScanner: Sendable {
                 }
                 throw CocoaError(.fileReadInapplicableStringEncoding)
             }
-            return parser.parseResult(
+            return try request.formatRegistration.parseResult(
                 SourceDocument(
                     fileURL: request.fileURL,
                     format: request.format,
+                    filenameSuffix: request.filenameSuffix,
                     contents: contents,
                     modifiedAt: request.modifiedAt
                 )
@@ -514,11 +527,16 @@ struct SourceDirectoryEnumerationSnapshot: Sendable {
 
 struct SourceFileParseRequest: Sendable {
     let fileURL: URL
-    let format: SourceDocument.Format
+    let formatRegistration: SourceFormatRegistration
+    let filenameSuffix: String
     let modifiedAt: Date?
     let currentFingerprint: SourceFileFingerprint?
     let previousFingerprint: SourceFileFingerprint?
     let previousEntities: [KnowledgeEntity]
+
+    var format: SourceDocument.Format {
+        formatRegistration.format
+    }
 }
 
 private struct SourceFileEnumeration {

@@ -1,8 +1,11 @@
 import Foundation
 
 public struct SourceFileFingerprint: Codable, Equatable, Sendable {
+    public static let legacyParserIdentifier = "org.brainsurfacer.legacy-outline"
+
     public var modifiedAt: Date
     public var fileSize: Int64
+    public var parserIdentifier: String
     public var parserRevision: Int
     public var indexingMode: SourceIndexingMode
     public var wasExcludedByDocumentMetadata: Bool
@@ -10,12 +13,14 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
     public init(
         modifiedAt: Date,
         fileSize: Int64,
+        parserIdentifier: String,
         parserRevision: Int = OutlineParser.outputRevision,
         indexingMode: SourceIndexingMode = .fullContent,
         wasExcludedByDocumentMetadata: Bool = false
     ) {
         self.modifiedAt = modifiedAt
         self.fileSize = fileSize
+        self.parserIdentifier = parserIdentifier
         self.parserRevision = parserRevision
         self.indexingMode = indexingMode
         self.wasExcludedByDocumentMetadata = wasExcludedByDocumentMetadata
@@ -24,6 +29,7 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case modifiedAt
         case fileSize
+        case parserIdentifier
         case parserRevision
         case indexingMode
         case wasExcludedByDocumentMetadata
@@ -33,6 +39,10 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         modifiedAt = try values.decode(Date.self, forKey: .modifiedAt)
         fileSize = try values.decode(Int64.self, forKey: .fileSize)
+        parserIdentifier = try values.decodeIfPresent(
+            String.self,
+            forKey: .parserIdentifier
+        ) ?? Self.legacyParserIdentifier
         parserRevision = try values.decode(Int.self, forKey: .parserRevision)
         indexingMode = try values.decodeIfPresent(
             SourceIndexingMode.self,

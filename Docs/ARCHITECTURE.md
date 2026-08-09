@@ -101,6 +101,17 @@ not enter the resource fingerprint or reparse the source: reconciliation reuses
 the existing canonical entities and journals the required projection additions
 or removals.
 
+`SourceFormatRegistry` selects a parser registration by the longest
+case-insensitive filename suffix. The standard registry maps `.md`, `.markdown`,
+`.md.txt`, and `.markdown.txt` to Markdown, and `.org` and `.org.txt` to Org.
+Ordinary `.txt` files and editor backup names such as `.md.txt#` therefore stay
+out of scope. Registration order resolves equal-length suffix conflicts: the
+first registration wins. Registrations carry a stable parser identifier,
+format, suffix aliases, and parser output revision; scanners depend on the
+registry rather than branching on extensions. This keeps format expansion
+behind a narrow parser protocol without requiring runtime-loaded executable
+plugins.
+
 The included `OutlineParser` indexes a document plus Markdown and Org outline
 entities. A section body contains only prose before its first child or sibling
 heading; child prose belongs to the child entity and is not duplicated into its
@@ -152,15 +163,17 @@ mutation:
    accept that replacement.
 
 The fingerprint cache is separately versioned, disposable JSON in Application
-Support. Each fingerprint includes the parser-output revision, indexing mode,
-and document-metadata exclusion disposition as well as file modification date
-and size, so parser or mode changes invalidate otherwise-unchanged files. This
-is required when restoring full content after a metadata-only interval. Missing,
-invalid, or unwritable fingerprint state causes reparsing rather than catalog
-deletion or a false indexing failure. Catalog recovery also reparses because an
-empty recovered catalog has no entities eligible for reuse, except when a
-fingerprint explicitly proves that the unchanged document opted out and should
-have no catalog entities.
+Support. Each fingerprint includes the parser identifier, parser-output
+revision, indexing mode, and document-metadata exclusion disposition as well as
+file modification date and size, so parser selection, parser behavior, or mode
+changes invalidate otherwise-unchanged files. Fingerprints written before the
+identifier was introduced decode with a legacy identifier and are reparsed
+once. This is required when restoring full content after a metadata-only
+interval. Missing, invalid, or unwritable fingerprint state causes reparsing
+rather than catalog deletion or a false indexing failure. Catalog recovery also
+reparses because an empty recovered catalog has no entities eligible for reuse,
+except when a fingerprint explicitly proves that the unchanged document opted
+out and should have no catalog entities.
 
 Modification date and size avoid reading unchanged files, but they can miss an
 in-place, same-size edit made by a tool that also preserves the timestamp. This
