@@ -81,7 +81,8 @@ public struct SourceFormatRegistry: Sendable {
     }
 
     public static func standard(
-        parser: OutlineParser = OutlineParser()
+        parser: OutlineParser = OutlineParser(),
+        bbcodeParser: BBCodeParser = BBCodeParser()
     ) -> SourceFormatRegistry {
         SourceFormatRegistry(
             registrations: [
@@ -96,6 +97,12 @@ public struct SourceFormatRegistry: Sendable {
                     format: .org,
                     filenameSuffixes: [".org.txt", ".org"],
                     parser: parser
+                ),
+                SourceFormatRegistration(
+                    parserIdentifier: "org.brainsurfacer.bbcode",
+                    format: .bbcode,
+                    filenameSuffixes: [".bb.txt"],
+                    parser: bbcodeParser
                 )
             ]
         )

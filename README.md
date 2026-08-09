@@ -2,12 +2,12 @@
 
 Surface your second brain to macOS.
 
-BrainSurfacer is a native macOS 27+ utility that makes opted-in Markdown and
-Org-mode knowledge available to Spotlight, Siri, Apple Intelligence, and App
-Intents. Standard and compound names such as `.md`, `.markdown`, `.md.txt`,
-`.markdown.txt`, `.org`, and `.org.txt` are recognized. The filesystem remains
-the source of truth; BrainSurfacer is neither an editor nor a second knowledge
-database.
+BrainSurfacer is a native macOS 27+ utility that makes opted-in Markdown,
+Org-mode, and vBulletin/BBCode knowledge available to Spotlight, Siri, Apple
+Intelligence, and App Intents. Standard and compound names such as `.md`,
+`.markdown`, `.md.txt`, `.markdown.txt`, `.org`, `.org.txt`, and `.bb.txt` are
+recognized. The filesystem remains the source of truth; BrainSurfacer is
+neither an editor nor a second knowledge database.
 
 The product has two distinct jobs:
 
@@ -27,7 +27,7 @@ This repository contains an early, architecture-first prototype:
 - `BrainSurfacerModel`: platform-neutral entities and source anchors.
 - `BrainSurfacerCore`: indexing, catalog, working-set, and opener ports.
 - `BrainSurfacerFilesystem`: source documents, a format/parser registry, and an
-  initial Markdown/Org outline parser.
+  initial Markdown/Org outline parser plus a conservative BBCode adapter.
 - `BrainSurfacerApple`: the macOS 27 App Intents/Core Spotlight projection.
 - `BrainSurfacerApp`: a native SwiftUI app for enrolling security-scoped source
   directories, monitoring indexing, manually reindexing, and searching the
@@ -36,11 +36,14 @@ This repository contains an early, architecture-first prototype:
 The app currently persists opted-in directories and lets each source choose
 both its content depth and whether discovery stays inside BrainSurfacer or also
 enrolls the source with Spotlight and Siri. It recursively scans registered
-Markdown and Org filename aliases, parses notes/headings/tasks with bounded
-section bodies, summaries,
-tags, links, planning dates, hierarchy, and precise source ranges, and submits
-them through the App Intents/Core Spotlight adapter. A versioned, rebuildable
-catalog keeps
+Markdown, Org, and BBCode filename aliases, parses durable structure with
+bounded bodies, summaries, links, hierarchy, and precise source ranges, and
+submits it through the App Intents/Core Spotlight adapter. Markdown and Org
+retain their richer tags, tasks, planning dates, and explicit identifiers.
+Standalone top-level `[b]…[/b]` lines in `.bb.txt` files become flat headings;
+quotes, lists, links, images, mentions, spoilers, code, and common presentation
+tags become readable searchable text without promoting inline bold emphasis. A
+versioned, rebuildable catalog keeps
 entity membership and pending idempotent index mutations across launches, and
 reconciles canonical identity across ordinary edits, duplicate headings,
 renames, file moves, and uniquely identifiable source-root moves. Org IDs,

@@ -125,7 +125,7 @@ final class SourceLibraryModel {
     func chooseDirectory() {
         let panel = NSOpenPanel()
         panel.title = "Choose a Knowledge Directory"
-        panel.message = "BrainSurfacer will read Markdown and Org files in this directory."
+        panel.message = "BrainSurfacer will read supported knowledge files in this directory."
         panel.prompt = "Add Source"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false

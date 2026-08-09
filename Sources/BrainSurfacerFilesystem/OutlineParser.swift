@@ -198,6 +198,9 @@ public struct OutlineParser: SourceDocumentParser, Sendable {
         in line: String,
         format: SourceDocument.Format
     ) -> ParsedHeading? {
+        guard format != .bbcode else {
+            return nil
+        }
         let marker: Character = format == .markdown ? "#" : "*"
         let level = line.prefix(while: { $0 == marker }).count
         let maximumDepth = format == .markdown
@@ -533,6 +536,8 @@ public struct OutlineParser: SourceDocumentParser, Sendable {
                 }
             }
             return metadata
+        case .bbcode:
+            return DocumentMetadata()
         }
     }
 
@@ -600,6 +605,8 @@ public struct OutlineParser: SourceDocumentParser, Sendable {
                 (Expressions.orgLink, 1, false),
                 (Expressions.bareURL, 1, true)
             ]
+        case .bbcode:
+            [(Expressions.bareURL, 1, true)]
         }
 
         var result: [URL] = []
@@ -652,6 +659,8 @@ public struct OutlineParser: SourceDocumentParser, Sendable {
             )
             .filter(isValidGregorianDate)
             .map { KnowledgeDate(kind: .mentioned, rawValue: $0) }
+        case .bbcode:
+            result = []
         }
         return result.reduce(into: []) { unique, value in
             if !unique.contains(value) {

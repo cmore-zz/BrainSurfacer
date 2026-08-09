@@ -4,6 +4,7 @@ public struct SourceDocument: Sendable {
     public enum Format: String, Sendable {
         case markdown
         case org
+        case bbcode
     }
 
     public var fileURL: URL
