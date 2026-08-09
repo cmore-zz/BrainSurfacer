@@ -35,8 +35,10 @@ This repository contains an early, architecture-first prototype:
 
 The app currently persists opted-in directories and lets each source choose
 both its content depth and whether discovery stays inside BrainSurfacer or also
-enrolls the source with Spotlight and Siri. It recursively scans registered
-Markdown, Org, and BBCode filename aliases, parses durable structure with
+enrolls the source with Spotlight and Siri. A source can also map additional
+exact filename suffixes such as `.forum.txt` to one of the built-in Markdown,
+Org, or BBCode parsers without admitting arbitrary text files globally. It
+recursively scans registered filename aliases, parses durable structure with
 bounded bodies, summaries, links, hierarchy, and precise source ranges, and
 submits it through the App Intents/Core Spotlight adapter. Markdown and Org
 retain their richer tags, tasks, planning dates, and explicit identifiers.
@@ -57,10 +59,10 @@ Per-file modification-time and size fingerprints avoid reparsing unchanged
 documents across launches. Reconciliation retains the last-known-good entities
 for unreadable or malformed files, retries them on the next pass, and removes
 entities only after a complete source enumeration confirms deletion. A parser
-identifier and output revision invalidate cached fingerprints after format
-mapping or parsing behavior changes; fingerprints created before parser
-identifiers were recorded are reparsed once. Same-size edits that deliberately
-preserve modification time remain a known
+identifier, output revision, and matched filename suffix invalidate cached
+fingerprints after format mapping or parsing behavior changes; fingerprints
+created before parser identifiers or suffixes were recorded are reparsed once.
+Same-size edits that deliberately preserve modification time remain a known
 metadata-fingerprint limitation.
 Individual documents can opt out inside valid Markdown front matter with
 `brainsurfacer-index: false`, or in the Org preamble with

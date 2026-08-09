@@ -157,6 +157,7 @@ public struct SourceDirectoryScanner: Sendable {
         var enumeration = try enumerateFiles(
             at: root,
             pathPolicy: source.pathPolicy,
+            formatOverrides: source.formatOverrides,
             indexingMode: source.indexingMode,
             previousFingerprints: previousFingerprints,
             previousEntitiesByFile: previousEntitiesByFile
@@ -175,7 +176,11 @@ public struct SourceDirectoryScanner: Sendable {
                 .union(previousEntitiesByFile.keys)
             for fileURL in previouslyKnownFiles.subtracting(enumeration.seenFiles) {
                 guard let relativePath = relativePath(of: fileURL, from: root),
-                      source.pathPolicy.includes(relativePath: relativePath) else {
+                      source.pathPolicy.includes(relativePath: relativePath),
+                      formatRegistry.match(
+                          for: fileURL,
+                          overrides: source.formatOverrides
+                      ) != nil else {
                     continue
                 }
                 enumeration.entities.append(
@@ -217,6 +222,7 @@ public struct SourceDirectoryScanner: Sendable {
     private func enumerateFiles(
         at root: URL,
         pathPolicy: SourcePathPolicy,
+        formatOverrides: [SourceFormatOverride],
         indexingMode: SourceIndexingMode,
         previousFingerprints: [URL: SourceFileFingerprint],
         previousEntitiesByFile: [URL: [KnowledgeEntity]]
@@ -236,6 +242,7 @@ public struct SourceDirectoryScanner: Sendable {
                     candidateURL,
                     root: root,
                     pathPolicy: pathPolicy,
+                    formatOverrides: formatOverrides,
                     indexingMode: indexingMode,
                     resourceKeys: resourceKeys,
                     previousFingerprints: previousFingerprints,
@@ -269,6 +276,7 @@ public struct SourceDirectoryScanner: Sendable {
                 candidateURL,
                 root: root,
                 pathPolicy: pathPolicy,
+                formatOverrides: formatOverrides,
                 indexingMode: indexingMode,
                 resourceKeys: resourceKeys,
                 previousFingerprints: previousFingerprints,
@@ -284,6 +292,7 @@ public struct SourceDirectoryScanner: Sendable {
         _ candidateURL: URL,
         root: URL,
         pathPolicy: SourcePathPolicy,
+        formatOverrides: [SourceFormatOverride],
         indexingMode: SourceIndexingMode,
         resourceKeys: Set<URLResourceKey>,
         previousFingerprints: [URL: SourceFileFingerprint],
@@ -291,7 +300,10 @@ public struct SourceDirectoryScanner: Sendable {
         result: inout SourceFileEnumeration
     ) throws {
         try Task.checkCancellation()
-        guard let formatMatch = formatRegistry.match(for: candidateURL) else {
+        guard let formatMatch = formatRegistry.match(
+            for: candidateURL,
+            overrides: formatOverrides
+        ) else {
             return
         }
         let fileURL = candidateURL.standardizedFileURL
@@ -312,6 +324,7 @@ public struct SourceDirectoryScanner: Sendable {
             let currentFingerprint = fingerprint(
                 from: values,
                 formatRegistration: formatMatch.registration,
+                filenameSuffix: formatMatch.filenameSuffix,
                 indexingMode: indexingMode,
                 wasExcludedByDocumentMetadata: previousFingerprints[fileURL]?
                     .wasExcludedByDocumentMetadata ?? false
@@ -418,6 +431,7 @@ public struct SourceDirectoryScanner: Sendable {
     private func fingerprint(
         from values: URLResourceValues,
         formatRegistration: SourceFormatRegistration,
+        filenameSuffix: String,
         indexingMode: SourceIndexingMode,
         wasExcludedByDocumentMetadata: Bool
     ) -> SourceFileFingerprint? {
@@ -430,6 +444,7 @@ public struct SourceDirectoryScanner: Sendable {
             fileSize: Int64(fileSize),
             parserIdentifier: formatRegistration.parserIdentifier,
             parserRevision: formatRegistration.parserRevision,
+            filenameSuffix: filenameSuffix,
             indexingMode: indexingMode,
             wasExcludedByDocumentMetadata: wasExcludedByDocumentMetadata
         )

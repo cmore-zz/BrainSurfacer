@@ -128,7 +128,7 @@ invariants.
   text, infers standalone-bold headings, and preserves readable quotes, links,
   lists, code, and source ranges. *(implemented)*
 - Add optional per-source suffix-to-format overrides after the built-in corpus
-  demonstrates where filename inference is insufficient.
+  demonstrates where filename inference is insufficient. *(implemented)*
 - Evaluate HTML ingestion separately from live-web capture or rendering.
 - Keep indexing adapters independent from any future lossless, editable syntax
   tree; a multi-format editor requires round-trip serialization, incremental

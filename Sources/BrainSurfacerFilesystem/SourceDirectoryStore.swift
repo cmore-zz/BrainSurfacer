@@ -7,12 +7,14 @@ public struct SourceDirectory: Identifiable, Hashable, Sendable {
     public var pathPolicy: SourcePathPolicy
     public var indexingMode: SourceIndexingMode
     public var discoveryScope: SourceDiscoveryScope
+    public var formatOverrides: [SourceFormatOverride]
 
     public init(
         url: URL,
         pathPolicy: SourcePathPolicy = SourcePathPolicy(),
         indexingMode: SourceIndexingMode = .fullContent,
-        discoveryScope: SourceDiscoveryScope = .localAndApple
+        discoveryScope: SourceDiscoveryScope = .localAndApple,
+        formatOverrides: [SourceFormatOverride] = []
     ) {
         let url = url.standardizedFileURL
         id = url.path
@@ -20,12 +22,13 @@ public struct SourceDirectory: Identifiable, Hashable, Sendable {
         self.pathPolicy = pathPolicy
         self.indexingMode = indexingMode
         self.discoveryScope = discoveryScope
+        self.formatOverrides = SourceFormatOverride.normalized(formatOverrides)
     }
 }
 
-/// Persists enrolled source roots, path policies, indexing modes, and discovery
-/// scopes together, and leases their security-scoped access. Loading also
-/// replaces stale bookmarks without detaching their settings.
+/// Persists enrolled source roots, path policies, indexing modes, discovery
+/// scopes, and format overrides together, and leases their security-scoped
+/// access. Loading also replaces stale bookmarks without detaching settings.
 public actor SourceDirectoryStore: DocumentAccessProvider {
     public enum Error: LocalizedError {
         case notDirectory(URL)
@@ -153,7 +156,8 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
                     bookmark: bookmark,
                     pathPolicy: SourcePathPolicy(),
                     indexingMode: .fullContent,
-                    discoveryScope: .localAndApple
+                    discoveryScope: .localAndApple,
+                    formatOverrides: []
                 )
             )
         }
@@ -178,6 +182,7 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
             pathPolicy: pathPolicy,
             indexingMode: nil,
             discoveryScope: nil,
+            formatOverrides: nil,
             for: source
         )
     }
@@ -191,6 +196,7 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
             pathPolicy: pathPolicy,
             indexingMode: indexingMode,
             discoveryScope: nil,
+            formatOverrides: nil,
             for: source
         )
     }
@@ -205,6 +211,23 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
             pathPolicy: pathPolicy,
             indexingMode: indexingMode,
             discoveryScope: discoveryScope,
+            formatOverrides: nil,
+            for: source
+        )
+    }
+
+    public func updateConfiguration(
+        pathPolicy: SourcePathPolicy,
+        indexingMode: SourceIndexingMode,
+        discoveryScope: SourceDiscoveryScope,
+        formatOverrides: [SourceFormatOverride],
+        for source: SourceDirectory
+    ) -> [SourceDirectory] {
+        updateEnrollment(
+            pathPolicy: pathPolicy,
+            indexingMode: indexingMode,
+            discoveryScope: discoveryScope,
+            formatOverrides: formatOverrides,
             for: source
         )
     }
@@ -213,6 +236,7 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
         pathPolicy: SourcePathPolicy,
         indexingMode: SourceIndexingMode?,
         discoveryScope: SourceDiscoveryScope?,
+        formatOverrides: [SourceFormatOverride]?,
         for source: SourceDirectory
     ) -> [SourceDirectory] {
         var enrollments = loadEnrollments()
@@ -224,14 +248,18 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
             }
             let updatedMode = indexingMode ?? enrollments[index].indexingMode
             let updatedScope = discoveryScope ?? enrollments[index].discoveryScope
+            let updatedOverrides = formatOverrides.map(SourceFormatOverride.normalized)
+                ?? enrollments[index].formatOverrides
             guard enrollments[index].pathPolicy != pathPolicy
                     || enrollments[index].indexingMode != updatedMode
-                    || enrollments[index].discoveryScope != updatedScope else {
+                    || enrollments[index].discoveryScope != updatedScope
+                    || enrollments[index].formatOverrides != updatedOverrides else {
                 continue
             }
             enrollments[index].pathPolicy = pathPolicy
             enrollments[index].indexingMode = updatedMode
             enrollments[index].discoveryScope = updatedScope
+            enrollments[index].formatOverrides = updatedOverrides
             didChange = true
         }
         if didChange {
@@ -255,7 +283,8 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
                 url: resolved.url,
                 pathPolicy: enrollment.pathPolicy,
                 indexingMode: enrollment.indexingMode,
-                discoveryScope: enrollment.discoveryScope
+                discoveryScope: enrollment.discoveryScope,
+                formatOverrides: enrollment.formatOverrides
             )
             guard seen.insert(source.id).inserted else {
                 continue
@@ -270,7 +299,8 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
                         bookmark: refreshed,
                         pathPolicy: enrollment.pathPolicy,
                         indexingMode: enrollment.indexingMode,
-                        discoveryScope: enrollment.discoveryScope
+                        discoveryScope: enrollment.discoveryScope,
+                        formatOverrides: enrollment.formatOverrides
                     )
                 )
             } else {
@@ -330,7 +360,8 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
                 bookmark: $0,
                 pathPolicy: SourcePathPolicy(),
                 indexingMode: .fullContent,
-                discoveryScope: .localAndApple
+                discoveryScope: .localAndApple,
+                formatOverrides: []
             )
         }
         if !legacyBookmarks.isEmpty {
@@ -349,7 +380,7 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
 }
 
 private struct PersistedSourceEnrollmentState: Codable {
-    static let currentSchemaVersion = 3
+    static let currentSchemaVersion = 4
 
     var schemaVersion = Self.currentSchemaVersion
     var enrollments: [PersistedSourceEnrollment]
@@ -361,6 +392,7 @@ private struct PersistedSourceEnrollment: Codable, Equatable {
     var pathPolicy: SourcePathPolicy
     var indexingMode: SourceIndexingMode
     var discoveryScope: SourceDiscoveryScope
+    var formatOverrides: [SourceFormatOverride]
 
     private enum CodingKeys: String, CodingKey {
         case identifier
@@ -368,6 +400,7 @@ private struct PersistedSourceEnrollment: Codable, Equatable {
         case pathPolicy
         case indexingMode
         case discoveryScope
+        case formatOverrides
     }
 
     init(
@@ -375,13 +408,15 @@ private struct PersistedSourceEnrollment: Codable, Equatable {
         bookmark: Data,
         pathPolicy: SourcePathPolicy,
         indexingMode: SourceIndexingMode,
-        discoveryScope: SourceDiscoveryScope
+        discoveryScope: SourceDiscoveryScope,
+        formatOverrides: [SourceFormatOverride]
     ) {
         self.identifier = identifier
         self.bookmark = bookmark
         self.pathPolicy = pathPolicy
         self.indexingMode = indexingMode
         self.discoveryScope = discoveryScope
+        self.formatOverrides = SourceFormatOverride.normalized(formatOverrides)
     }
 
     init(from decoder: any Decoder) throws {
@@ -400,5 +435,22 @@ private struct PersistedSourceEnrollment: Codable, Equatable {
             SourceDiscoveryScope.self,
             forKey: .discoveryScope
         ) ?? .localAndApple
+        let persistedOverrides = try values.decodeIfPresent(
+            [PersistedSourceFormatOverride].self,
+            forKey: .formatOverrides
+        ) ?? []
+        formatOverrides = SourceFormatOverride.normalized(
+            persistedOverrides.compactMap { persisted in
+                guard let format = SourceDocument.Format(rawValue: persisted.format) else {
+                    return nil
+                }
+                return SourceFormatOverride(suffix: persisted.suffix, format: format)
+            }
+        )
     }
+}
+
+private struct PersistedSourceFormatOverride: Decodable {
+    var suffix: String
+    var format: String
 }

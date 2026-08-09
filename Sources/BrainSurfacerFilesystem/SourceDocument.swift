@@ -1,7 +1,7 @@
 import Foundation
 
 public struct SourceDocument: Sendable {
-    public enum Format: String, Sendable {
+    public enum Format: String, CaseIterable, Codable, Sendable {
         case markdown
         case org
         case bbcode

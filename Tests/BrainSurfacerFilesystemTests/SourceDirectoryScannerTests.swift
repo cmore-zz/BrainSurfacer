@@ -145,6 +145,125 @@ func formatRegistryNormalizesAliasesAndPrefersTheLongestSuffix() throws {
 }
 
 @Test
+func sourceFormatOverridesValidateAndRespectLongestSuffixPrecedence() throws {
+    let registry = SourceFormatRegistry.standard()
+    let broadOverride = try #require(
+        SourceFormatOverride(suffix: " TXT ", format: .org)
+    )
+    let equalOverride = try #require(
+        SourceFormatOverride(suffix: ".MD.TXT", format: .bbcode)
+    )
+
+    let builtInWins = try #require(
+        registry.match(
+            for: URL(fileURLWithPath: "/notes/Plan.md.txt"),
+            overrides: [broadOverride]
+        )
+    )
+    let equalOverrideWins = try #require(
+        registry.match(
+            for: URL(fileURLWithPath: "/notes/Plan.md.txt"),
+            overrides: [broadOverride, equalOverride]
+        )
+    )
+    let broadOverrideAdmitsText = try #require(
+        registry.match(
+            for: URL(fileURLWithPath: "/notes/Plan.txt"),
+            overrides: [broadOverride]
+        )
+    )
+
+    #expect(broadOverride.suffix == ".txt")
+    #expect(builtInWins.registration.format == .markdown)
+    #expect(builtInWins.filenameSuffix == ".md.txt")
+    #expect(equalOverrideWins.registration.format == .bbcode)
+    #expect(equalOverrideWins.filenameSuffix == ".md.txt")
+    #expect(broadOverrideAdmitsText.registration.format == .org)
+    #expect(SourceFormatOverride(suffix: "", format: .markdown) == nil)
+    #expect(SourceFormatOverride(suffix: ".txt#", format: .markdown) == nil)
+    #expect(SourceFormatOverride(suffix: "../txt", format: .markdown) == nil)
+    #expect(SourceFormatOverride(suffix: "*.txt", format: .markdown) == nil)
+}
+
+@Test
+func scannerReparsesAndRevokesFilesWhenFormatOverridesChange() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerFormatOverrides-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    let fileURL = root.appending(path: "Entry.forum.txt")
+    try "[b]Forum title[/b]\nSearchable body.".write(
+        to: fileURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    try "ignored backup".write(
+        to: root.appending(path: "Entry.forum.txt#"),
+        atomically: true,
+        encoding: .utf8
+    )
+    let scanner = SourceDirectoryScanner()
+
+    let unsupported = try await scanner.scan(SourceDirectory(url: root))
+    let broadMarkdown = try await scanner.scan(
+        SourceDirectory(
+            url: root,
+            formatOverrides: [
+                try #require(SourceFormatOverride(suffix: ".txt", format: .markdown))
+            ]
+        )
+    )
+    let preciseMarkdown = try await scanner.scan(
+        SourceDirectory(
+            url: root,
+            formatOverrides: [
+                try #require(
+                    SourceFormatOverride(suffix: ".forum.txt", format: .markdown)
+                )
+            ]
+        ),
+        previousFingerprints: broadMarkdown.fingerprints,
+        previousEntities: broadMarkdown.entities
+    )
+    let bbcode = try await scanner.scan(
+        SourceDirectory(
+            url: root,
+            formatOverrides: [
+                try #require(
+                    SourceFormatOverride(suffix: ".forum.txt", format: .bbcode)
+                )
+            ]
+        ),
+        previousFingerprints: preciseMarkdown.fingerprints,
+        previousEntities: preciseMarkdown.entities
+    )
+    let removed = try await scanner.scan(
+        SourceDirectory(url: root),
+        previousFingerprints: bbcode.fingerprints,
+        previousEntities: bbcode.entities
+    )
+
+    #expect(unsupported.fileCount == 0)
+    #expect(broadMarkdown.fileCount == 1)
+    #expect(broadMarkdown.entities.contains { $0.title == "Entry.forum" })
+    #expect(broadMarkdown.fingerprints[fileURL.standardizedFileURL]?.filenameSuffix == ".txt")
+    #expect(preciseMarkdown.parsedFileCount == 1)
+    #expect(preciseMarkdown.reusedFileCount == 0)
+    #expect(preciseMarkdown.entities.contains { $0.title == "Entry" })
+    #expect(preciseMarkdown.fingerprints[fileURL.standardizedFileURL]?.filenameSuffix
+        == ".forum.txt")
+    #expect(bbcode.parsedFileCount == 1)
+    #expect(bbcode.entities.contains { $0.title == "Forum title" })
+    #expect(bbcode.fingerprints[fileURL.standardizedFileURL]?.parserIdentifier
+        == "org.brainsurfacer.bbcode")
+    #expect(removed.fileCount == 0)
+    #expect(removed.entities.isEmpty)
+    #expect(removed.fingerprints.isEmpty)
+}
+
+@Test
 func scannerAcceptsARegisteredParserWithoutScannerChanges() async throws {
     let root = FileManager.default.temporaryDirectory
         .appending(path: "BrainSurfacerRegisteredParser-\(UUID().uuidString)", directoryHint: .isDirectory)

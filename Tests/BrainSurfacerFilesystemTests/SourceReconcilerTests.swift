@@ -83,6 +83,46 @@ func reconciliationRemovesFilesExcludedByAChangedSourcePolicy() async throws {
 }
 
 @Test
+func reconciliationAddsAndRevokesFilesWithSourceFormatOverrides() async throws {
+    let fixture = try ReconciliationFixture()
+    defer { fixture.remove() }
+
+    let fileURL = fixture.source.url.appending(path: "Forum.export.txt")
+    try "[b]Imported discussion[/b]\nUseful details.".write(
+        to: fileURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let catalog = InMemoryEntityCatalog()
+    let index = ReconciliationRecordingIndex()
+    let fingerprints = SourceFingerprintStore(storageURL: fixture.fingerprintURL)
+    let reconciler = SourceReconciler(
+        fingerprintStore: fingerprints,
+        coordinator: IndexingCoordinator(catalog: catalog, permanentIndex: index)
+    )
+
+    let unsupported = try await reconciler.reconcile(fixture.source)
+    let mappedSource = SourceDirectory(
+        url: fixture.source.url,
+        formatOverrides: [
+            try #require(SourceFormatOverride(suffix: ".export.txt", format: .bbcode))
+        ]
+    )
+    let indexed = try await reconciler.reconcile(mappedSource)
+    let indexedEntities = await catalog.entities(from: fixture.source.url)
+    let revoked = try await reconciler.reconcile(fixture.source)
+    let revocation = try #require(await index.changes.last)
+
+    #expect(unsupported.entities.isEmpty)
+    #expect(indexed.parsedFileCount == 1)
+    #expect(indexedEntities.contains { $0.title == "Imported discussion" })
+    #expect(await fingerprints.fingerprints(for: fixture.source.url).isEmpty)
+    #expect(revoked.entities.isEmpty)
+    #expect(await catalog.entities(from: fixture.source.url).isEmpty)
+    #expect(revocation.removals == Set(indexedEntities.map(\.id)))
+}
+
+@Test
 func reconciliationRevokesAndRestoresDocumentsUsingMetadataOptOut() async throws {
     let fixture = try ReconciliationFixture()
     defer { fixture.remove() }

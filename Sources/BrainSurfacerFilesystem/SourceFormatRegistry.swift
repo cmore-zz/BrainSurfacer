@@ -108,8 +108,38 @@ public struct SourceFormatRegistry: Sendable {
         )
     }
 
-    func match(for fileURL: URL) -> SourceFormatMatch? {
+    func match(
+        for fileURL: URL,
+        overrides: [SourceFormatOverride] = []
+    ) -> SourceFormatMatch? {
         let filename = fileURL.lastPathComponent.lowercased()
+        let builtInMatch = longestRegisteredMatch(for: filename)
+        var bestOverride: SourceFormatOverride?
+        for override in overrides where filename.hasSuffix(override.suffix) {
+            guard bestOverride.map({ override.suffix.count > $0.suffix.count }) ?? true else {
+                continue
+            }
+            bestOverride = override
+        }
+        let overrideMatch = bestOverride.flatMap { override in
+            registrations.first(where: { $0.format == override.format }).map {
+                SourceFormatMatch(
+                    registration: $0,
+                    filenameSuffix: override.suffix
+                )
+            }
+        }
+        guard let overrideMatch else {
+            return builtInMatch
+        }
+        guard let builtInMatch,
+              builtInMatch.filenameSuffix.count > overrideMatch.filenameSuffix.count else {
+            return overrideMatch
+        }
+        return builtInMatch
+    }
+
+    private func longestRegisteredMatch(for filename: String) -> SourceFormatMatch? {
         var bestMatch: SourceFormatMatch?
         for registration in registrations {
             for suffix in registration.filenameSuffixes where filename.hasSuffix(suffix) {
