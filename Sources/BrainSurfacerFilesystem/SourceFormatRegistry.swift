@@ -72,6 +72,8 @@ public struct SourceFormatRegistration: Sendable {
 }
 
 public struct SourceFormatRegistry: Sendable {
+    /// Registrations are ordered. The longest matching filename suffix wins;
+    /// when matching suffixes have equal length, the first registration wins.
     public let registrations: [SourceFormatRegistration]
 
     public init(registrations: [SourceFormatRegistration]) {

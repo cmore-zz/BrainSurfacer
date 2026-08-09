@@ -105,10 +105,12 @@ or removals.
 case-insensitive filename suffix. The standard registry maps `.md`, `.markdown`,
 `.md.txt`, and `.markdown.txt` to Markdown, and `.org` and `.org.txt` to Org.
 Ordinary `.txt` files and editor backup names such as `.md.txt#` therefore stay
-out of scope. Registrations carry a stable parser identifier, format, suffix
-aliases, and parser output revision; scanners depend on the registry rather
-than branching on extensions. This keeps format expansion behind a narrow
-parser protocol without requiring runtime-loaded executable plugins.
+out of scope. Registration order resolves equal-length suffix conflicts: the
+first registration wins. Registrations carry a stable parser identifier,
+format, suffix aliases, and parser output revision; scanners depend on the
+registry rather than branching on extensions. This keeps format expansion
+behind a narrow parser protocol without requiring runtime-loaded executable
+plugins.
 
 The included `OutlineParser` indexes a document plus Markdown and Org outline
 entities. A section body contains only prose before its first child or sibling

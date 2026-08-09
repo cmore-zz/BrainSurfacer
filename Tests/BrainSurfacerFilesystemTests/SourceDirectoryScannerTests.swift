@@ -125,6 +125,12 @@ func formatRegistryNormalizesAliasesAndPrefersTheLongestSuffix() throws {
                 format: .markdown,
                 filenameSuffixes: ["md.txt"],
                 parser: parser
+            ),
+            SourceFormatRegistration(
+                parserIdentifier: "test.shadowed-markdown-text",
+                format: .org,
+                filenameSuffixes: [".MD.TXT"],
+                parser: parser
             )
         ]
     )
@@ -133,6 +139,7 @@ func formatRegistryNormalizesAliasesAndPrefersTheLongestSuffix() throws {
         registry.match(for: URL(fileURLWithPath: "/notes/Plan.MD.TXT"))
     )
     #expect(match.registration.parserIdentifier == "test.markdown-text")
+    #expect(match.registration.format == .markdown)
     #expect(match.filenameSuffix == ".md.txt")
     #expect(registry.registrations[0].filenameSuffixes == [".txt"])
 }
