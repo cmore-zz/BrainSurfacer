@@ -184,11 +184,16 @@ func sourceConfigurationsPersistWithEnrollmentAndAreRemovedWithIt() async throws
         includePatterns: ["Projects/**"],
         excludePatterns: ["Projects/Archive/**"]
     )
+    let overrides = [
+        try #require(SourceFormatOverride(suffix: ".forum.txt", format: .bbcode)),
+        try #require(SourceFormatOverride(suffix: "notes", format: .markdown))
+    ]
     let updated = try #require(
         await store.updateConfiguration(
             pathPolicy: policy,
             indexingMode: .metadataOnly,
             discoveryScope: .localOnly,
+            formatOverrides: overrides,
             for: source
         ).first
     )
@@ -210,18 +215,23 @@ func sourceConfigurationsPersistWithEnrollmentAndAreRemovedWithIt() async throws
     #expect(updated.pathPolicy == policy)
     #expect(updated.indexingMode == .metadataOnly)
     #expect(updated.discoveryScope == .localOnly)
+    #expect(updated.formatOverrides.map(\.suffix) == [".forum.txt", ".notes"])
     #expect(pathOnlyUpdateFromStaleSource.indexingMode == .metadataOnly)
     #expect(pathOnlyUpdateFromStaleSource.discoveryScope == .localOnly)
+    #expect(pathOnlyUpdateFromStaleSource.formatOverrides == updated.formatOverrides)
     #expect(modeUpdateFromStaleSource.discoveryScope == .localOnly)
+    #expect(modeUpdateFromStaleSource.formatOverrides == updated.formatOverrides)
     #expect(await relaunched.load().first?.pathPolicy == policy)
     #expect(await relaunched.load().first?.indexingMode == .metadataOnly)
     #expect(await relaunched.load().first?.discoveryScope == .localOnly)
+    #expect(await relaunched.load().first?.formatOverrides == updated.formatOverrides)
 
     _ = await relaunched.remove(updated)
     let reenrolled = try #require(try await relaunched.add([directory]).first)
     #expect(reenrolled.pathPolicy.isUnrestricted)
     #expect(reenrolled.indexingMode == .fullContent)
     #expect(reenrolled.discoveryScope == .localAndApple)
+    #expect(reenrolled.formatOverrides.isEmpty)
 }
 
 @Test
@@ -290,8 +300,15 @@ func decodableFutureEnrollmentSchemasRemainVisibleOnDowngrade() async throws {
     var storedObject = try #require(
         JSONSerialization.jsonObject(with: storedData) as? [String: Any]
     )
-    storedObject["schemaVersion"] = 4
+    storedObject["schemaVersion"] = 5
     storedObject["futureMetadata"] = ["preservedByNewerWriter": true]
+    var futureEnrollments = try #require(
+        storedObject["enrollments"] as? [[String: Any]]
+    )
+    futureEnrollments[0]["formatOverrides"] = [
+        ["suffix": ".future", "format": "future-format"]
+    ]
+    storedObject["enrollments"] = futureEnrollments
     let futureData = try JSONSerialization.data(withJSONObject: storedObject)
     defaults.set(futureData, forKey: storageKey)
 
@@ -306,6 +323,7 @@ func decodableFutureEnrollmentSchemasRemainVisibleOnDowngrade() async throws {
     )
 
     #expect(loaded == [enrolled])
+    #expect(loaded.first?.formatOverrides.isEmpty == true)
     #expect(unchanged == [enrolled])
     #expect(defaults.data(forKey: storageKey) == futureData)
 }
@@ -338,6 +356,7 @@ func enrollmentRecordsWithoutModesOrScopesUseHistoricalDefaults() async throws {
     var enrollments = try #require(storedObject["enrollments"] as? [[String: Any]])
     enrollments[0].removeValue(forKey: "indexingMode")
     enrollments[0].removeValue(forKey: "discoveryScope")
+    enrollments[0].removeValue(forKey: "formatOverrides")
     storedObject["schemaVersion"] = 1
     storedObject["enrollments"] = enrollments
     defaults.set(
@@ -354,6 +373,7 @@ func enrollmentRecordsWithoutModesOrScopesUseHistoricalDefaults() async throws {
     #expect(source.indexingMode == .fullContent)
     #expect(source.discoveryScope == .localAndApple)
     #expect(source.pathPolicy.isUnrestricted)
+    #expect(source.formatOverrides.isEmpty)
 }
 
 @Test

@@ -68,8 +68,9 @@ support headings, hierarchy, tags, links, timestamps, TODO states, properties,
 source blocks, and attachments.
 
 Each enrollment is a versioned record that keeps its security-scoped bookmark,
-path policy, indexing mode, and discovery scope together, so bookmark refreshes
-and source-root moves cannot detach privacy rules from the approved source.
+path policy, indexing mode, discovery scope, and filename-format overrides
+together, so bookmark refreshes and source-root moves cannot detach privacy or
+interpretation rules from the approved source.
 Existing bookmark arrays and enrollment records without these settings migrate
 to unrestricted, full-content records enrolled in both BrainSurfacer and Apple's
 surfaces. Include and exclude rules are root-relative globs;
@@ -107,6 +108,13 @@ case-insensitive filename suffix. The standard registry maps `.md`, `.markdown`,
 It maps `.bb.txt` to the BBCode adapter. Ordinary `.txt` files and editor backup
 names such as `.md.txt#` therefore stay out of scope. Registration order
 resolves equal-length suffix conflicts: the first registration wins.
+An enrollment may explicitly map additional validated suffixes to one of these
+built-in formats. Longest suffix still wins across built-ins and overrides; an
+override wins an equal-length tie, so `.txt` does not shadow the more specific
+built-in `.md.txt` unless that exact suffix is overridden. Overrides contain no
+executable code, accept no path separators or glob characters, and remain local
+to their source. Adding, changing, or removing one uses ordinary reconciliation
+to add, reparse, or revoke affected entities.
 Registrations carry a stable parser identifier, format, suffix aliases, and
 parser output revision; scanners depend on the registry rather than branching
 on extensions. This keeps format expansion behind a narrow parser protocol
@@ -175,11 +183,12 @@ mutation:
 
 The fingerprint cache is separately versioned, disposable JSON in Application
 Support. Each fingerprint includes the parser identifier, parser-output
-revision, indexing mode, and document-metadata exclusion disposition as well as
-file modification date and size, so parser selection, parser behavior, or mode
-changes invalidate otherwise-unchanged files. Fingerprints written before the
-identifier was introduced decode with a legacy identifier and are reparsed
-once. This is required when restoring full content after a metadata-only
+revision, matched filename suffix, indexing mode, and document-metadata
+exclusion disposition as well as file modification date and size, so parser
+selection, title-affecting suffix selection, parser behavior, or mode changes
+invalidate otherwise-unchanged files. Fingerprints written before the
+identifier or suffix was introduced are reparsed once. This is required when
+restoring full content after a metadata-only
 interval. Missing, invalid, or unwritable fingerprint state causes reparsing
 rather than catalog deletion or a false indexing failure. Catalog recovery also
 reparses because an empty recovered catalog has no entities eligible for reuse,

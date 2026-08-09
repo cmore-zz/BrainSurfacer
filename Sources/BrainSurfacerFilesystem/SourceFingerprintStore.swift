@@ -7,6 +7,7 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
     public var fileSize: Int64
     public var parserIdentifier: String
     public var parserRevision: Int
+    public var filenameSuffix: String?
     public var indexingMode: SourceIndexingMode
     public var wasExcludedByDocumentMetadata: Bool
 
@@ -15,6 +16,7 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
         fileSize: Int64,
         parserIdentifier: String,
         parserRevision: Int = OutlineParser.outputRevision,
+        filenameSuffix: String? = nil,
         indexingMode: SourceIndexingMode = .fullContent,
         wasExcludedByDocumentMetadata: Bool = false
     ) {
@@ -22,6 +24,7 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
         self.fileSize = fileSize
         self.parserIdentifier = parserIdentifier
         self.parserRevision = parserRevision
+        self.filenameSuffix = filenameSuffix
         self.indexingMode = indexingMode
         self.wasExcludedByDocumentMetadata = wasExcludedByDocumentMetadata
     }
@@ -31,6 +34,7 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
         case fileSize
         case parserIdentifier
         case parserRevision
+        case filenameSuffix
         case indexingMode
         case wasExcludedByDocumentMetadata
     }
@@ -44,6 +48,10 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
             forKey: .parserIdentifier
         ) ?? Self.legacyParserIdentifier
         parserRevision = try values.decode(Int.self, forKey: .parserRevision)
+        filenameSuffix = try values.decodeIfPresent(
+            String.self,
+            forKey: .filenameSuffix
+        )
         indexingMode = try values.decodeIfPresent(
             SourceIndexingMode.self,
             forKey: .indexingMode

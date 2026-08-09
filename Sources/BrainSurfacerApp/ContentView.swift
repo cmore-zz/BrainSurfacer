@@ -378,11 +378,12 @@ private struct SourcesView: View {
             }
         }
         .sheet(item: $editingSource) { source in
-            SourceIndexingSettingsEditor(source: source) { policy, mode, scope in
+            SourceIndexingSettingsEditor(source: source) { policy, mode, scope, overrides in
                 model.updateSourceConfiguration(
                     pathPolicy: policy,
                     indexingMode: mode,
                     discoveryScope: scope,
+                    formatOverrides: overrides,
                     for: source
                 )
             }
@@ -396,19 +397,22 @@ private struct SourceIndexingSettingsEditor: View {
     let onSave: (
         SourcePathPolicy,
         SourceIndexingMode,
-        SourceDiscoveryScope
+        SourceDiscoveryScope,
+        [SourceFormatOverride]
     ) -> Void
     @State private var indexingMode: SourceIndexingMode
     @State private var discoveryScope: SourceDiscoveryScope
     @State private var includePatterns: String
     @State private var excludePatterns: String
+    @State private var formatOverrides: [SourceFormatOverrideDraft]
 
     init(
         source: SourceDirectory,
         onSave: @escaping (
             SourcePathPolicy,
             SourceIndexingMode,
-            SourceDiscoveryScope
+            SourceDiscoveryScope,
+            [SourceFormatOverride]
         ) -> Void
     ) {
         self.source = source
@@ -420,6 +424,9 @@ private struct SourceIndexingSettingsEditor: View {
         )
         _excludePatterns = State(
             initialValue: source.pathPolicy.excludePatterns.joined(separator: "\n")
+        )
+        _formatOverrides = State(
+            initialValue: source.formatOverrides.map(SourceFormatOverrideDraft.init)
         )
     }
 
@@ -454,6 +461,46 @@ private struct SourceIndexingSettingsEditor: View {
                     Text(discoveryScope.explanation)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+
+                Section("Format overrides") {
+                    ForEach($formatOverrides) { $override in
+                        HStack {
+                            TextField(".forum.txt", text: $override.suffix)
+                                .font(.system(.body, design: .monospaced))
+                            Picker("Format", selection: $override.format) {
+                                ForEach(SourceDocument.Format.allCases, id: \.self) { format in
+                                    Text(format.displayName).tag(format)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 130)
+                            Button(role: .destructive) {
+                                formatOverrides.removeAll { $0.id == override.id }
+                            } label: {
+                                Label("Remove Override", systemImage: "minus.circle")
+                                    .labelStyle(.iconOnly)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                    Button("Add Override", systemImage: "plus") {
+                        formatOverrides.append(SourceFormatOverrideDraft())
+                    }
+                    Text(
+                        "Map an exact filename suffix to a built-in parser. Longest suffix "
+                            + "wins; an override wins a tie with a built-in suffix."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    if validatedFormatOverrides == nil {
+                        Text(
+                            "Each suffix must be unique and use only letters, numbers, dots, "
+                                + "hyphens, or underscores."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    }
                 }
 
                 Section("Include patterns") {
@@ -496,19 +543,49 @@ private struct SourceIndexingSettingsEditor: View {
                                 excludePatterns: patternLines(excludePatterns)
                             ),
                             indexingMode,
-                            discoveryScope
+                            discoveryScope,
+                            validatedFormatOverrides ?? []
                         )
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
+                    .disabled(validatedFormatOverrides == nil)
                 }
             }
         }
-        .frame(minWidth: 560, minHeight: 520)
+        .frame(minWidth: 620, minHeight: 660)
     }
 
     private func patternLines(_ text: String) -> [String] {
         text.components(separatedBy: .newlines)
+    }
+
+    private var validatedFormatOverrides: [SourceFormatOverride]? {
+        var result: [SourceFormatOverride] = []
+        var suffixes: Set<String> = []
+        for draft in formatOverrides {
+            guard let override = SourceFormatOverride(
+                suffix: draft.suffix,
+                format: draft.format
+            ), suffixes.insert(override.suffix).inserted else {
+                return nil
+            }
+            result.append(override)
+        }
+        return SourceFormatOverride.normalized(result)
+    }
+}
+
+private struct SourceFormatOverrideDraft: Identifiable {
+    let id = UUID()
+    var suffix = ""
+    var format: SourceDocument.Format = .markdown
+
+    init() {}
+
+    init(_ override: SourceFormatOverride) {
+        suffix = override.suffix
+        format = override.format
     }
 }
 
@@ -516,6 +593,31 @@ private extension SourceDirectory {
     var indexingConfigurationSummary: String {
         indexingMode.displayName + " · " + discoveryScope.displayName
             + " · " + pathPolicy.displaySummary
+            + formatOverrideSummary
+    }
+
+    private var formatOverrideSummary: String {
+        switch formatOverrides.count {
+        case 0:
+            ""
+        case 1:
+            " · 1 format override"
+        default:
+            " · \(formatOverrides.count) format overrides"
+        }
+    }
+}
+
+private extension SourceDocument.Format {
+    var displayName: String {
+        switch self {
+        case .markdown:
+            "Markdown"
+        case .org:
+            "Org"
+        case .bbcode:
+            "BBCode"
+        }
     }
 }
 

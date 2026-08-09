@@ -172,11 +172,13 @@ final class SourceLibraryModel {
         pathPolicy: SourcePathPolicy,
         indexingMode: SourceIndexingMode,
         discoveryScope: SourceDiscoveryScope,
+        formatOverrides: [SourceFormatOverride],
         for source: SourceDirectory
     ) {
         guard pathPolicy != source.pathPolicy
                 || indexingMode != source.indexingMode
-                || discoveryScope != source.discoveryScope else {
+                || discoveryScope != source.discoveryScope
+                || formatOverrides != source.formatOverrides else {
             return
         }
         Task {
@@ -184,6 +186,7 @@ final class SourceLibraryModel {
                 pathPolicy: pathPolicy,
                 indexingMode: indexingMode,
                 discoveryScope: discoveryScope,
+                formatOverrides: formatOverrides,
                 for: source
             )
             restartSourceObservation()
