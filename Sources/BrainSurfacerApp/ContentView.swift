@@ -298,7 +298,10 @@ private struct SourcesView: View {
                 ContentUnavailableView {
                     Label("Choose what to surface", systemImage: "folder.badge.plus")
                 } description: {
-                    Text("Only explicitly approved Markdown and Org directories will be indexed. You can also drag a folder here.")
+                    Text(
+                        "Only explicitly approved source directories will be indexed. "
+                            + "You can also drag a folder here."
+                    )
                         .frame(maxWidth: 460)
                 } actions: {
                     Button("Add Source…", action: model.chooseDirectory)
@@ -458,7 +461,8 @@ private struct SourceIndexingSettingsEditor: View {
                         .font(.system(.body, design: .monospaced))
                         .frame(minHeight: 90)
                     Text(
-                        "One root-relative glob per line. Leave empty to include every supported Markdown and Org file."
+                        "One root-relative glob per line. Leave empty to include "
+                            + "every supported knowledge file."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -586,7 +590,7 @@ private struct IndexView: View {
                 ContentUnavailableView {
                     Label("No sources", systemImage: "folder.badge.plus")
                 } description: {
-                    Text("Add a Markdown or Org directory in Sources to begin indexing.")
+                    Text("Add a source directory in Sources to begin indexing.")
                 }
             } else {
                 List {
@@ -708,7 +712,7 @@ private struct IndexView: View {
             Text("Waiting to index")
                 .foregroundStyle(.secondary)
         case .indexing:
-            Text("Scanning Markdown and Org files…")
+            Text("Scanning supported knowledge files…")
                 .foregroundStyle(.secondary)
         case .indexed:
             Text(

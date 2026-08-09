@@ -125,7 +125,8 @@ invariants.
   `.markdown.txt`, and `.org.txt` without admitting arbitrary `.txt` files.
   *(implemented)*
 - Add fixture-driven vBulletin/BBCode ingestion that degrades safely for plain
-  text and preserves quotes, links, lists, and source ranges.
+  text, infers standalone-bold headings, and preserves readable quotes, links,
+  lists, code, and source ranges. *(implemented)*
 - Add optional per-source suffix-to-format overrides after the built-in corpus
   demonstrates where filename inference is insufficient.
 - Evaluate HTML ingestion separately from live-web capture or rendering.

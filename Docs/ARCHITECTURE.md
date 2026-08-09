@@ -3,9 +3,9 @@
 ## Product boundary
 
 BrainSurfacer is a local semantic knowledge provider for macOS. It indexes
-user-approved Markdown and Org-mode sources, exposes useful structure to system
-services, accepts transient context from editors, and opens results back in the
-user's chosen tool.
+user-approved Markdown, Org-mode, and BBCode sources, exposes useful structure
+to system services, accepts transient context from editors, and opens results
+back in the user's chosen tool.
 
 It does not edit notes, replace Spotlight, own canonical content, or maintain a
 parallel embedding database. Derived caches are disposable and rebuildable from
@@ -104,13 +104,13 @@ or removals.
 `SourceFormatRegistry` selects a parser registration by the longest
 case-insensitive filename suffix. The standard registry maps `.md`, `.markdown`,
 `.md.txt`, and `.markdown.txt` to Markdown, and `.org` and `.org.txt` to Org.
-Ordinary `.txt` files and editor backup names such as `.md.txt#` therefore stay
-out of scope. Registration order resolves equal-length suffix conflicts: the
-first registration wins. Registrations carry a stable parser identifier,
-format, suffix aliases, and parser output revision; scanners depend on the
-registry rather than branching on extensions. This keeps format expansion
-behind a narrow parser protocol without requiring runtime-loaded executable
-plugins.
+It maps `.bb.txt` to the BBCode adapter. Ordinary `.txt` files and editor backup
+names such as `.md.txt#` therefore stay out of scope. Registration order
+resolves equal-length suffix conflicts: the first registration wins.
+Registrations carry a stable parser identifier, format, suffix aliases, and
+parser output revision; scanners depend on the registry rather than branching
+on extensions. This keeps format expansion behind a narrow parser protocol
+without requiring runtime-loaded executable plugins.
 
 The included `OutlineParser` indexes a document plus Markdown and Org outline
 entities. A section body contains only prose before its first child or sibling
@@ -125,6 +125,17 @@ entities for search recall. Org property drawers and
 planning lines, and Markdown front matter, contribute identity, tags, or dates
 without polluting section prose. The representative parser corpus locks these
 policies down while broader syntax coverage remains future work.
+
+`BBCodeParser` always emits a document entity and conservatively infers flat
+section entities only from top-level physical lines whose complete substantive
+content is `[b]…[/b]`. Bold text inside prose, lists, quotes, literal code, or
+noparse blocks remains body content. Its readable projection handles both
+vBulletin list dialects, quote attribution, links and email, images and video,
+mentions, spoilers, tables, common presentation tags, and literal code. Unknown
+tags remain visible instead of silently discarding possible note syntax.
+Malformed block openings fail toward less inferred structure, while every
+entity retains a range into the unmodified source bytes. These semantics are an
+indexing projection, not a lossless editing tree.
 
 A document can revoke its entire derived projection with namespaced metadata:
 `brainsurfacer-index: false` (or the underscore spelling) inside valid Markdown
