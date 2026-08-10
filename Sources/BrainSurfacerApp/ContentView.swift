@@ -468,9 +468,9 @@ private struct SourceIndexingSettingsEditor: View {
                         HStack {
                             TextField(".forum.txt", text: $override.suffix)
                                 .font(.system(.body, design: .monospaced))
-                            Picker("Format", selection: $override.format) {
-                                ForEach(SourceDocument.Format.allCases, id: \.self) { format in
-                                    Text(format.displayName).tag(format)
+                            Picker("Format", selection: $override.target) {
+                                ForEach(SourceFormatOverride.Target.allCases, id: \.self) { target in
+                                    Text(target.displayName).tag(target)
                                 }
                             }
                             .labelsHidden()
@@ -488,8 +488,10 @@ private struct SourceIndexingSettingsEditor: View {
                         formatOverrides.append(SourceFormatOverrideDraft())
                     }
                     Text(
-                        "Map an exact filename suffix to a built-in parser. Longest suffix "
-                            + "wins; an override wins a tie with a built-in suffix."
+                        "Map an exact filename suffix to a built-in parser, or detect the "
+                            + "format from strong content signals. Longest suffix wins; an "
+                            + "override wins a tie with a built-in suffix. Auto-detection "
+                            + "examines only the first 128 KiB and skips ambiguous files."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -566,7 +568,7 @@ private struct SourceIndexingSettingsEditor: View {
         for draft in formatOverrides {
             guard let override = SourceFormatOverride(
                 suffix: draft.suffix,
-                format: draft.format
+                target: draft.target
             ), suffixes.insert(override.suffix).inserted else {
                 return nil
             }
@@ -579,13 +581,13 @@ private struct SourceIndexingSettingsEditor: View {
 private struct SourceFormatOverrideDraft: Identifiable {
     let id = UUID()
     var suffix = ""
-    var format: SourceDocument.Format = .markdown
+    var target: SourceFormatOverride.Target = .automatic
 
     init() {}
 
     init(_ override: SourceFormatOverride) {
         suffix = override.suffix
-        format = override.format
+        target = override.target
     }
 }
 
@@ -608,9 +610,11 @@ private extension SourceDirectory {
     }
 }
 
-private extension SourceDocument.Format {
+private extension SourceFormatOverride.Target {
     var displayName: String {
         switch self {
+        case .automatic:
+            "Auto-detect"
         case .markdown:
             "Markdown"
         case .org:

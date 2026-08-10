@@ -25,7 +25,8 @@ func fileFingerprintsPersistPerSourceAndCanBeRemoved() async throws {
             modifiedAt: Date(timeIntervalSince1970: 200),
             fileSize: 20,
             parserIdentifier: "org.brainsurfacer.org-outline",
-            wasExcludedByDocumentMetadata: true
+            wasExcludedByDocumentMetadata: true,
+            wasSkippedByFormatDetection: true
         )
     ]
 
@@ -52,6 +53,7 @@ func fingerprintsWithoutIndexingMetadataUseLegacyDefaults() throws {
     )
     object.removeValue(forKey: "indexingMode")
     object.removeValue(forKey: "wasExcludedByDocumentMetadata")
+    object.removeValue(forKey: "wasSkippedByFormatDetection")
     object.removeValue(forKey: "parserIdentifier")
     object.removeValue(forKey: "filenameSuffix")
 
@@ -62,6 +64,7 @@ func fingerprintsWithoutIndexingMetadataUseLegacyDefaults() throws {
 
     #expect(decoded.indexingMode == .fullContent)
     #expect(!decoded.wasExcludedByDocumentMetadata)
+    #expect(!decoded.wasSkippedByFormatDetection)
     #expect(decoded.modifiedAt == original.modifiedAt)
     #expect(decoded.fileSize == original.fileSize)
     #expect(decoded.parserRevision == original.parserRevision)

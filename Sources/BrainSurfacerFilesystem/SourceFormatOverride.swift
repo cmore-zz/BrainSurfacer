@@ -1,16 +1,51 @@
 import Foundation
 
 public struct SourceFormatOverride: Codable, Hashable, Identifiable, Sendable {
+    public enum Target: String, CaseIterable, Codable, Sendable {
+        case automatic
+        case markdown
+        case org
+        case bbcode
+
+        public init(_ format: SourceDocument.Format) {
+            switch format {
+            case .markdown:
+                self = .markdown
+            case .org:
+                self = .org
+            case .bbcode:
+                self = .bbcode
+            }
+        }
+
+        public var format: SourceDocument.Format? {
+            switch self {
+            case .automatic:
+                nil
+            case .markdown:
+                .markdown
+            case .org:
+                .org
+            case .bbcode:
+                .bbcode
+            }
+        }
+    }
+
     public var id: String { suffix }
     public let suffix: String
-    public let format: SourceDocument.Format
+    public let target: Target
 
     public init?(suffix rawSuffix: String, format: SourceDocument.Format) {
+        self.init(suffix: rawSuffix, target: Target(format))
+    }
+
+    public init?(suffix rawSuffix: String, target: Target) {
         guard let suffix = Self.normalizedSuffix(rawSuffix) else {
             return nil
         }
         self.suffix = suffix
-        self.format = format
+        self.target = target
     }
 
     public static func normalized(
@@ -50,8 +85,8 @@ public struct SourceFormatOverride: Codable, Hashable, Identifiable, Sendable {
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         let rawSuffix = try values.decode(String.self, forKey: .suffix)
-        let format = try values.decode(SourceDocument.Format.self, forKey: .format)
-        guard let normalized = Self(suffix: rawSuffix, format: format) else {
+        let target = try values.decode(Target.self, forKey: .format)
+        guard let normalized = Self(suffix: rawSuffix, target: target) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .suffix,
                 in: values,
@@ -59,5 +94,11 @@ public struct SourceFormatOverride: Codable, Hashable, Identifiable, Sendable {
             )
         }
         self = normalized
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(suffix, forKey: .suffix)
+        try values.encode(target, forKey: .format)
     }
 }

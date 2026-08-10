@@ -10,6 +10,7 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
     public var filenameSuffix: String?
     public var indexingMode: SourceIndexingMode
     public var wasExcludedByDocumentMetadata: Bool
+    public var wasSkippedByFormatDetection: Bool
 
     public init(
         modifiedAt: Date,
@@ -18,7 +19,8 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
         parserRevision: Int = OutlineParser.outputRevision,
         filenameSuffix: String? = nil,
         indexingMode: SourceIndexingMode = .fullContent,
-        wasExcludedByDocumentMetadata: Bool = false
+        wasExcludedByDocumentMetadata: Bool = false,
+        wasSkippedByFormatDetection: Bool = false
     ) {
         self.modifiedAt = modifiedAt
         self.fileSize = fileSize
@@ -27,6 +29,7 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
         self.filenameSuffix = filenameSuffix
         self.indexingMode = indexingMode
         self.wasExcludedByDocumentMetadata = wasExcludedByDocumentMetadata
+        self.wasSkippedByFormatDetection = wasSkippedByFormatDetection
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -37,6 +40,7 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
         case filenameSuffix
         case indexingMode
         case wasExcludedByDocumentMetadata
+        case wasSkippedByFormatDetection
     }
 
     public init(from decoder: any Decoder) throws {
@@ -59,6 +63,10 @@ public struct SourceFileFingerprint: Codable, Equatable, Sendable {
         wasExcludedByDocumentMetadata = try values.decodeIfPresent(
             Bool.self,
             forKey: .wasExcludedByDocumentMetadata
+        ) ?? false
+        wasSkippedByFormatDetection = try values.decodeIfPresent(
+            Bool.self,
+            forKey: .wasSkippedByFormatDetection
         ) ?? false
     }
 }
