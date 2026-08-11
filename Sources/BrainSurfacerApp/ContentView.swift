@@ -199,6 +199,9 @@ private struct LiveContextView: View {
             }
         }
         .navigationTitle("Live Context")
+        .appEntityIdentifier(
+            BrainSurfacerAppEntityAnnotations.identifier(for: model.currentContext)
+        )
         .task(id: model.currentContext.nextExpiration) {
             guard let expiration = model.currentContext.nextExpiration else {
                 return

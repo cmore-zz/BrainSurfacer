@@ -175,9 +175,13 @@ as the logged-in user.
 ## Apple API boundary
 
 BrainSurfacer annotates the entity rows in its own Live Context view with the
-same App Entity identifiers used for Spotlight. This lets the system associate
-visible BrainSurfacer UI with canonical entities where the OS supports onscreen
-entity awareness.
+same App Entity identifiers used for Spotlight. The view itself also carries
+the stable identifier of the single expiring live-context aggregate. Resolving
+that identifier still passes through the aggregate's query, which reapplies
+expiry and Apple-discovery scope rather than embedding context contents in the
+SwiftUI hierarchy. Together, these annotations let the system associate visible
+BrainSurfacer UI with both canonical notes and their temporary working set where
+the OS supports onscreen entity awareness.
 
 Those annotations cannot describe windows owned by Emacs or Obsidian. In the
 current macOS 27 SDK, `RelevantEntities` does not expose a general document

@@ -3,7 +3,15 @@ import BrainSurfacerCore
 import BrainSurfacerModel
 @preconcurrency import CoreSpotlight
 import Foundation
+import OSLog
 import UniformTypeIdentifiers
+
+private enum SpotlightLiveContextLog {
+    static let logger = Logger(
+        subsystem: "org.brainsurfacer.BrainSurfacer",
+        category: "LiveContextEntityQuery"
+    )
+}
 
 /// A single, expiring semantic projection of the editor state shared with
 /// BrainSurfacer. The aggregate lets system search answer questions such as
@@ -145,13 +153,27 @@ public struct SpotlightLiveContextEntity: IndexedEntity {
 
         public func entities(for identifiers: [String]) async throws
             -> [SpotlightLiveContextEntity] {
-            guard identifiers.contains(SpotlightLiveContextEntity.currentIdentifier),
-                  let entity = try await SpotlightLiveContextResolver.entity(
-                    snapshotStore: snapshotStore,
-                    catalog: catalog
-                  ) else {
+            SpotlightLiveContextLog.logger.notice(
+                "Live-context entity query requested \(identifiers.count, privacy: .public) identifier(s)"
+            )
+            guard identifiers.contains(SpotlightLiveContextEntity.currentIdentifier) else {
+                SpotlightLiveContextLog.logger.debug(
+                    "Live-context entity query did not request the current aggregate"
+                )
                 return []
             }
+            guard let entity = try await SpotlightLiveContextResolver.entity(
+                snapshotStore: snapshotStore,
+                catalog: catalog
+            ) else {
+                SpotlightLiveContextLog.logger.notice(
+                    "Live-context entity query found no unexpired Apple-eligible aggregate"
+                )
+                return []
+            }
+            SpotlightLiveContextLog.logger.notice(
+                "Live-context entity query resolved the current aggregate"
+            )
             return [entity]
         }
 

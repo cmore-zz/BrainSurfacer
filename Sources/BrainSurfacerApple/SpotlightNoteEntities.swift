@@ -3,7 +3,15 @@ import BrainSurfacerCore
 import BrainSurfacerModel
 @preconcurrency import CoreSpotlight
 import Foundation
+import OSLog
 import UniformTypeIdentifiers
+
+private enum SpotlightNoteEntityLog {
+    static let logger = Logger(
+        subsystem: "org.brainsurfacer.BrainSurfacer",
+        category: "NoteEntityQuery"
+    )
+}
 
 // Tags, folders, and the source account are relationship values owned by indexed
 // notes. They intentionally resolve as AppEntity values without creating their
@@ -234,13 +242,20 @@ public struct SpotlightNoteEntity: IndexedEntity {
         }
 
         public func entities(for identifiers: [String]) async throws -> [SpotlightNoteEntity] {
+            SpotlightNoteEntityLog.logger.notice(
+                "Durable-note entity query requested \(identifiers.count, privacy: .public) identifier(s)"
+            )
             let projections = try await catalog.permanentlyIndexedEntities()
                 .filter { $0.kind == .note }
                 .map(SpotlightNoteEntity.init)
             let projectionByID = Dictionary(
                 uniqueKeysWithValues: projections.map { ($0.id, $0) }
             )
-            return identifiers.compactMap { projectionByID[$0] }
+            let entities = identifiers.compactMap { projectionByID[$0] }
+            SpotlightNoteEntityLog.logger.notice(
+                "Durable-note entity query resolved \(entities.count, privacy: .public) item(s)"
+            )
+            return entities
         }
 
         public func reindexEntities(

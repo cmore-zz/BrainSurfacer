@@ -401,8 +401,11 @@ The SDK also adds `RelevantEntities`, but its public context surface is currentl
 domain-specific rather than a general “current working set” mechanism. The
 architecture therefore does not equate live editor context with
 `RelevantEntities`. BrainSurfacer annotates rows in its own Live Context UI with
-the existing Spotlight App Entity identity, using the SDK's onscreen entity
-annotation APIs. It cannot annotate UI owned by Emacs or Obsidian. Working
+the existing Spotlight App Entity identity and annotates the containing view
+with the identifier of the expiring aggregate, using the SDK's onscreen entity
+annotation APIs. The aggregate identifier is resolved through the same query
+that enforces TTL and Apple-discovery scope. BrainSurfacer cannot annotate UI
+owned by Emacs or Obsidian. Working
 context feeds in-app ranking and an explicit background App Intent that returns
 up to twenty transient current-document entities. Each result carries a bounded
 content excerpt, source URL, relevance, provider provenance, and open URL.

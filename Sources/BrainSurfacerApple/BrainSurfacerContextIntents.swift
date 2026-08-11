@@ -2,6 +2,14 @@ import AppIntents
 import BrainSurfacerCore
 import BrainSurfacerModel
 import Foundation
+import OSLog
+
+private enum BrainSurfacerContextIntentLog {
+    static let logger = Logger(
+        subsystem: "org.brainsurfacer.BrainSurfacer",
+        category: "CurrentContextIntent"
+    )
+}
 
 public struct BrainSurfacerContextItemEntity: TransientAppEntity {
     public static var typeDisplayRepresentation: TypeDisplayRepresentation {
@@ -58,8 +66,14 @@ public struct GetCurrentBrainSurfacerContextIntent: AppIntent {
         -> some IntentResult
             & ReturnsValue<[BrainSurfacerContextItemEntity]>
             & ProvidesDialog {
+        BrainSurfacerContextIntentLog.logger.notice(
+            "GetCurrentBrainSurfacerContextIntent invoked"
+        )
         let entities = try await BrainSurfacerIntentContext.entities()
         let summary = BrainSurfacerIntentText.contextDialog(for: entities)
+        BrainSurfacerContextIntentLog.logger.notice(
+            "GetCurrentBrainSurfacerContextIntent returning \(entities.count, privacy: .public) item(s)"
+        )
         return .result(value: entities, dialog: "\(summary)")
     }
 }
@@ -106,16 +120,24 @@ enum BrainSurfacerIntentContext {
         )
     ) async throws -> [BrainSurfacerContextItemEntity] {
         let coordinator = ContextCoordinator(catalog: catalog)
-        for snapshot in await snapshotStore.snapshots(at: date) {
+        let snapshots = await snapshotStore.snapshots(at: date)
+        BrainSurfacerContextIntentLog.logger.debug(
+            "Resolving current context from \(snapshots.count, privacy: .public) unexpired provider snapshot(s)"
+        )
+        for snapshot in snapshots {
             await coordinator.ingest(snapshot)
         }
         let context = try await AppleDiscoveryContextFilter.eligibleContext(
             from: coordinator.currentContext(at: date),
             catalog: catalog
         )
-        return context.resolved.prefix(maximumItemCount).map(
+        let entities = context.resolved.prefix(maximumItemCount).map(
             BrainSurfacerContextItemEntity.init
         )
+        BrainSurfacerContextIntentLog.logger.debug(
+            "Resolved \(context.resolved.count, privacy: .public) Apple-eligible current item(s); projected \(entities.count, privacy: .public)"
+        )
+        return entities
     }
 
     static func bestRelevance(
