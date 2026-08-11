@@ -153,6 +153,9 @@ func sourceFormatOverridesValidateAndRespectLongestSuffixPrecedence() throws {
     let equalOverride = try #require(
         SourceFormatOverride(suffix: ".MD.TXT", format: .bbcode)
     )
+    let automaticOverride = try #require(
+        SourceFormatOverride(suffix: ".txt", target: .automatic)
+    )
 
     let builtInWins = try #require(
         registry.match(
@@ -172,6 +175,18 @@ func sourceFormatOverridesValidateAndRespectLongestSuffixPrecedence() throws {
             overrides: [broadOverride]
         )
     )
+    let longerBuiltInBeatsAutomatic = try #require(
+        registry.match(
+            for: URL(fileURLWithPath: "/notes/Plan.md.txt"),
+            overrides: [automaticOverride]
+        )
+    )
+    let automaticAdmitsText = try #require(
+        registry.match(
+            for: URL(fileURLWithPath: "/notes/Plan.txt"),
+            overrides: [automaticOverride]
+        )
+    )
 
     #expect(broadOverride.suffix == ".txt")
     #expect(builtInWins.registration.format == .markdown)
@@ -179,10 +194,116 @@ func sourceFormatOverridesValidateAndRespectLongestSuffixPrecedence() throws {
     #expect(equalOverrideWins.registration.format == .bbcode)
     #expect(equalOverrideWins.filenameSuffix == ".md.txt")
     #expect(broadOverrideAdmitsText.registration.format == .org)
+    #expect(longerBuiltInBeatsAutomatic.registration.parserIdentifier
+        == "org.brainsurfacer.markdown-outline")
+    #expect(automaticAdmitsText.registration.parserIdentifier
+        == "org.brainsurfacer.automatic-format")
     #expect(SourceFormatOverride(suffix: "", format: .markdown) == nil)
     #expect(SourceFormatOverride(suffix: ".txt#", format: .markdown) == nil)
     #expect(SourceFormatOverride(suffix: "../txt", format: .markdown) == nil)
     #expect(SourceFormatOverride(suffix: "*.txt", format: .markdown) == nil)
+}
+
+@Test
+func contentFormatDetectorRequiresStrongAndDistinctEvidence() {
+    let detector = SourceFormatDetector()
+
+    #expect(detector.detect(in: "# First\nBody\n## Second\nMore body")?.format == .markdown)
+    #expect(detector.detect(in: "#+TITLE: Plan\n* First\n** Second")?.format == .org)
+    #expect(detector.detect(in: "[b]Forum title[/b]\nOrdinary body")?.format == .bbcode)
+    #expect(detector.detect(in: "[quote=Alex]\nQuoted text\n[/quote]")?.format == .bbcode)
+    #expect(detector.detect(in: "# A lone possible heading\nOrdinary body") == nil)
+    #expect(detector.detect(in: "- first\n- second\n- third") == nil)
+    #expect(detector.detect(in: "* first\n* second\n* third") == nil)
+    #expect(detector.detect(in: "Completely ordinary plain text.") == nil)
+    #expect(detector.detect(in: "# First\n## Second\n[b]Forum title[/b]") == nil)
+
+    let beyondProbe = String(
+        repeating: "ordinary text\n",
+        count: SourceFormatDetector.maximumInspectedBytes / 10
+    ) + "\n# First\n## Second"
+    #expect(detector.detect(in: beyondProbe) == nil)
+}
+
+@Test
+func scannerAutoDetectsConfiguredTextAndReusesConfidentSkips() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "BrainSurfacerAutoDetection-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    let markdownURL = root.appending(path: "Markdown.txt")
+    let orgURL = root.appending(path: "Org.txt")
+    let bbcodeURL = root.appending(path: "Forum.txt")
+    let plainURL = root.appending(path: "Plain.txt")
+    try "# First\nBody\n## Second\nMore body".write(
+        to: markdownURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    try "#+TITLE: Org plan\n* First\n** Second".write(
+        to: orgURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    try "[b]Forum title[/b]\nSearchable body".write(
+        to: bbcodeURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    try "Ordinary plain text without format evidence.".write(
+        to: plainURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let source = SourceDirectory(
+        url: root,
+        formatOverrides: [
+            try #require(SourceFormatOverride(suffix: ".txt", target: .automatic))
+        ]
+    )
+    let scanner = SourceDirectoryScanner()
+
+    let first = try await scanner.scan(source)
+    let second = try await scanner.scan(
+        source,
+        previousFingerprints: first.fingerprints,
+        previousEntities: first.entities
+    )
+    try "# Newly structured\nBody\n## Second heading".write(
+        to: plainURL,
+        atomically: true,
+        encoding: .utf8
+    )
+    let firstPlainFingerprint = try #require(
+        first.fingerprints[plainURL.standardizedFileURL]
+    )
+    try FileManager.default.setAttributes(
+        [.modificationDate: firstPlainFingerprint.modifiedAt.addingTimeInterval(10)],
+        ofItemAtPath: plainURL.path
+    )
+    let third = try await scanner.scan(
+        source,
+        previousFingerprints: second.fingerprints,
+        previousEntities: second.entities
+    )
+
+    #expect(first.fileCount == 4)
+    #expect(first.parsedFileCount == 4)
+    #expect(first.entities.contains { $0.title == "First" })
+    #expect(first.entities.contains { $0.title == "Org plan" })
+    #expect(first.entities.contains { $0.title == "Forum title" })
+    #expect(!first.entities.contains { $0.source.fileURL == plainURL })
+    #expect(first.fingerprints[plainURL.standardizedFileURL]?.wasSkippedByFormatDetection == true)
+    #expect(first.fingerprints[markdownURL.standardizedFileURL]?.parserIdentifier
+        == "org.brainsurfacer.automatic-format")
+    #expect(second.parsedFileCount == 0)
+    #expect(second.reusedFileCount == 4)
+    #expect(second.entities == first.entities)
+    #expect(third.parsedFileCount == 1)
+    #expect(third.reusedFileCount == 3)
+    #expect(third.entities.contains { $0.title == "Newly structured" })
 }
 
 @Test

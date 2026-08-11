@@ -380,7 +380,7 @@ public actor SourceDirectoryStore: DocumentAccessProvider {
 }
 
 private struct PersistedSourceEnrollmentState: Codable {
-    static let currentSchemaVersion = 4
+    static let currentSchemaVersion = 5
 
     var schemaVersion = Self.currentSchemaVersion
     var enrollments: [PersistedSourceEnrollment]
@@ -441,10 +441,10 @@ private struct PersistedSourceEnrollment: Codable, Equatable {
         ) ?? []
         formatOverrides = SourceFormatOverride.normalized(
             persistedOverrides.compactMap { persisted in
-                guard let format = SourceDocument.Format(rawValue: persisted.format) else {
+                guard let target = SourceFormatOverride.Target(rawValue: persisted.format) else {
                     return nil
                 }
-                return SourceFormatOverride(suffix: persisted.suffix, format: format)
+                return SourceFormatOverride(suffix: persisted.suffix, target: target)
             }
         )
     }

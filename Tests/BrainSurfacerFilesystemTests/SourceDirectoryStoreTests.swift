@@ -186,7 +186,7 @@ func sourceConfigurationsPersistWithEnrollmentAndAreRemovedWithIt() async throws
     )
     let overrides = [
         try #require(SourceFormatOverride(suffix: ".forum.txt", format: .bbcode)),
-        try #require(SourceFormatOverride(suffix: "notes", format: .markdown))
+        try #require(SourceFormatOverride(suffix: "notes", target: .automatic))
     ]
     let updated = try #require(
         await store.updateConfiguration(
@@ -216,6 +216,7 @@ func sourceConfigurationsPersistWithEnrollmentAndAreRemovedWithIt() async throws
     #expect(updated.indexingMode == .metadataOnly)
     #expect(updated.discoveryScope == .localOnly)
     #expect(updated.formatOverrides.map(\.suffix) == [".forum.txt", ".notes"])
+    #expect(updated.formatOverrides.map(\.target) == [.bbcode, .automatic])
     #expect(pathOnlyUpdateFromStaleSource.indexingMode == .metadataOnly)
     #expect(pathOnlyUpdateFromStaleSource.discoveryScope == .localOnly)
     #expect(pathOnlyUpdateFromStaleSource.formatOverrides == updated.formatOverrides)
@@ -300,7 +301,7 @@ func decodableFutureEnrollmentSchemasRemainVisibleOnDowngrade() async throws {
     var storedObject = try #require(
         JSONSerialization.jsonObject(with: storedData) as? [String: Any]
     )
-    storedObject["schemaVersion"] = 5
+    storedObject["schemaVersion"] = 6
     storedObject["futureMetadata"] = ["preservedByNewerWriter": true]
     var futureEnrollments = try #require(
         storedObject["enrollments"] as? [[String: Any]]

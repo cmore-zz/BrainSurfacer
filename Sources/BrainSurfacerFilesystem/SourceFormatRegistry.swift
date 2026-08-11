@@ -11,13 +11,16 @@ public protocol SourceDocumentParser: Sendable {
 public struct SourceDocumentParseResult: Sendable {
     public var entities: [KnowledgeEntity]
     public var wasExcludedByDocumentMetadata: Bool
+    public var wasSkippedByFormatDetection: Bool
 
     public init(
         entities: [KnowledgeEntity],
-        wasExcludedByDocumentMetadata: Bool
+        wasExcludedByDocumentMetadata: Bool,
+        wasSkippedByFormatDetection: Bool = false
     ) {
         self.entities = entities
         self.wasExcludedByDocumentMetadata = wasExcludedByDocumentMetadata
+        self.wasSkippedByFormatDetection = wasSkippedByFormatDetection
     }
 }
 
@@ -26,9 +29,11 @@ public struct SourceFormatRegistration: Sendable {
     public let format: SourceDocument.Format
     public let filenameSuffixes: [String]
     public let parserRevision: Int
+    let contentProbeMaximumBytes: Int?
 
     private let parseDocument: @Sendable (SourceDocument) throws -> SourceDocumentParseResult
     private let documentExcludesIndexing: @Sendable (SourceDocument) -> Bool
+    private let contentProbe: (@Sendable (String) -> Bool)?
 
     public init<Parser: SourceDocumentParser>(
         parserIdentifier: String,
@@ -40,8 +45,28 @@ public struct SourceFormatRegistration: Sendable {
         self.format = format
         self.filenameSuffixes = Self.normalizedSuffixes(filenameSuffixes)
         self.parserRevision = parser.outputRevision
+        self.contentProbeMaximumBytes = nil
         self.parseDocument = { try parser.parseResult($0) }
         self.documentExcludesIndexing = { parser.excludesIndexing($0) }
+        self.contentProbe = nil
+    }
+
+    init<Parser: SourceDocumentParser>(
+        parserIdentifier: String,
+        format: SourceDocument.Format,
+        filenameSuffixes: [String],
+        parser: Parser,
+        contentProbeMaximumBytes: Int,
+        contentProbe: @escaping @Sendable (String) -> Bool
+    ) {
+        self.parserIdentifier = parserIdentifier
+        self.format = format
+        self.filenameSuffixes = Self.normalizedSuffixes(filenameSuffixes)
+        self.parserRevision = parser.outputRevision
+        self.contentProbeMaximumBytes = max(1, contentProbeMaximumBytes)
+        self.parseDocument = { try parser.parseResult($0) }
+        self.documentExcludesIndexing = { parser.excludesIndexing($0) }
+        self.contentProbe = contentProbe
     }
 
     func parseResult(_ document: SourceDocument) throws -> SourceDocumentParseResult {
@@ -50,6 +75,10 @@ public struct SourceFormatRegistration: Sendable {
 
     func excludesIndexing(_ document: SourceDocument) -> Bool {
         documentExcludesIndexing(document)
+    }
+
+    func acceptsContentProbe(_ contents: String) -> Bool {
+        contentProbe?(contents) ?? true
     }
 
     private static func normalizedSuffixes(_ suffixes: [String]) -> [String] {
@@ -75,36 +104,59 @@ public struct SourceFormatRegistry: Sendable {
     /// Registrations are ordered. The longest matching filename suffix wins;
     /// when matching suffixes have equal length, the first registration wins.
     public let registrations: [SourceFormatRegistration]
+    private let automaticRegistration: SourceFormatRegistration?
 
     public init(registrations: [SourceFormatRegistration]) {
         self.registrations = registrations
+        self.automaticRegistration = nil
+    }
+
+    init(
+        registrations: [SourceFormatRegistration],
+        automaticRegistration: SourceFormatRegistration
+    ) {
+        self.registrations = registrations
+        self.automaticRegistration = automaticRegistration
     }
 
     public static func standard(
         parser: OutlineParser = OutlineParser(),
         bbcodeParser: BBCodeParser = BBCodeParser()
     ) -> SourceFormatRegistry {
-        SourceFormatRegistry(
-            registrations: [
-                SourceFormatRegistration(
-                    parserIdentifier: "org.brainsurfacer.markdown-outline",
-                    format: .markdown,
-                    filenameSuffixes: [".md.txt", ".markdown.txt", ".markdown", ".md"],
-                    parser: parser
+        let registrations = [
+            SourceFormatRegistration(
+                parserIdentifier: "org.brainsurfacer.markdown-outline",
+                format: .markdown,
+                filenameSuffixes: [".md.txt", ".markdown.txt", ".markdown", ".md"],
+                parser: parser
+            ),
+            SourceFormatRegistration(
+                parserIdentifier: "org.brainsurfacer.org-outline",
+                format: .org,
+                filenameSuffixes: [".org.txt", ".org"],
+                parser: parser
+            ),
+            SourceFormatRegistration(
+                parserIdentifier: "org.brainsurfacer.bbcode",
+                format: .bbcode,
+                filenameSuffixes: [".bb.txt"],
+                parser: bbcodeParser
+            )
+        ]
+        let detector = SourceFormatDetector()
+        return SourceFormatRegistry(
+            registrations: registrations,
+            automaticRegistration: SourceFormatRegistration(
+                parserIdentifier: "org.brainsurfacer.automatic-format",
+                format: .markdown,
+                filenameSuffixes: [],
+                parser: AutomaticSourceDocumentParser(
+                    registrations: registrations,
+                    detector: detector
                 ),
-                SourceFormatRegistration(
-                    parserIdentifier: "org.brainsurfacer.org-outline",
-                    format: .org,
-                    filenameSuffixes: [".org.txt", ".org"],
-                    parser: parser
-                ),
-                SourceFormatRegistration(
-                    parserIdentifier: "org.brainsurfacer.bbcode",
-                    format: .bbcode,
-                    filenameSuffixes: [".bb.txt"],
-                    parser: bbcodeParser
-                )
-            ]
+                contentProbeMaximumBytes: SourceFormatDetector.maximumInspectedBytes,
+                contentProbe: { detector.detect(in: $0) != nil }
+            )
         )
     }
 
@@ -122,7 +174,13 @@ public struct SourceFormatRegistry: Sendable {
             bestOverride = override
         }
         let overrideMatch = bestOverride.flatMap { override in
-            registrations.first(where: { $0.format == override.format }).map {
+            let registration: SourceFormatRegistration?
+            if let format = override.target.format {
+                registration = registrations.first(where: { $0.format == format })
+            } else {
+                registration = automaticRegistration
+            }
+            return registration.map {
                 SourceFormatMatch(
                     registration: $0,
                     filenameSuffix: override.suffix

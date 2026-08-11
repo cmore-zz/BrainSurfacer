@@ -327,13 +327,17 @@ public struct SourceDirectoryScanner: Sendable {
                 filenameSuffix: formatMatch.filenameSuffix,
                 indexingMode: indexingMode,
                 wasExcludedByDocumentMetadata: previousFingerprints[fileURL]?
-                    .wasExcludedByDocumentMetadata ?? false
+                    .wasExcludedByDocumentMetadata ?? false,
+                wasSkippedByFormatDetection: previousFingerprints[fileURL]?
+                    .wasSkippedByFormatDetection ?? false
             )
             if let currentFingerprint,
                currentFingerprint == previousFingerprints[fileURL],
                currentFingerprint.wasExcludedByDocumentMetadata
+                    || currentFingerprint.wasSkippedByFormatDetection
                     || !previousFileEntities.isEmpty {
-                if !currentFingerprint.wasExcludedByDocumentMetadata {
+                if !currentFingerprint.wasExcludedByDocumentMetadata
+                    && !currentFingerprint.wasSkippedByFormatDetection {
                     result.entities.append(contentsOf: previousFileEntities)
                 }
                 result.fingerprints[fileURL] = currentFingerprint
@@ -410,6 +414,8 @@ public struct SourceDirectoryScanner: Sendable {
             var fingerprint = request.currentFingerprint
             fingerprint?.wasExcludedByDocumentMetadata =
                 parsed.wasExcludedByDocumentMetadata
+            fingerprint?.wasSkippedByFormatDetection =
+                parsed.wasSkippedByFormatDetection
             return SourceFileParseOutcome(
                 fileURL: request.fileURL,
                 entities: parsed.entities,
@@ -433,7 +439,8 @@ public struct SourceDirectoryScanner: Sendable {
         formatRegistration: SourceFormatRegistration,
         filenameSuffix: String,
         indexingMode: SourceIndexingMode,
-        wasExcludedByDocumentMetadata: Bool
+        wasExcludedByDocumentMetadata: Bool,
+        wasSkippedByFormatDetection: Bool
     ) -> SourceFileFingerprint? {
         guard let modifiedAt = values.contentModificationDate,
               let fileSize = values.fileSize else {
@@ -446,7 +453,8 @@ public struct SourceDirectoryScanner: Sendable {
             parserRevision: formatRegistration.parserRevision,
             filenameSuffix: filenameSuffix,
             indexingMode: indexingMode,
-            wasExcludedByDocumentMetadata: wasExcludedByDocumentMetadata
+            wasExcludedByDocumentMetadata: wasExcludedByDocumentMetadata,
+            wasSkippedByFormatDetection: wasSkippedByFormatDetection
         )
     }
 
@@ -503,6 +511,22 @@ public struct SourceDirectoryScanner: Sendable {
         -> @Sendable (SourceFileParseRequest) async throws -> SourceDocumentParseResult {
         { request in
             try Task.checkCancellation()
+            if let maximumBytes = request.formatRegistration.contentProbeMaximumBytes {
+                let handle = try FileHandle(forReadingFrom: request.fileURL)
+                defer {
+                    try? handle.close()
+                }
+                let prefix = try handle.read(upToCount: maximumBytes) ?? Data()
+                try Task.checkCancellation()
+                let prefixContents = String(decoding: prefix, as: UTF8.self)
+                guard request.formatRegistration.acceptsContentProbe(prefixContents) else {
+                    return SourceDocumentParseResult(
+                        entities: [],
+                        wasExcludedByDocumentMetadata: false,
+                        wasSkippedByFormatDetection: true
+                    )
+                }
+            }
             let data = try Data(contentsOf: request.fileURL)
             try Task.checkCancellation()
             guard let contents = String(data: data, encoding: .utf8) else {

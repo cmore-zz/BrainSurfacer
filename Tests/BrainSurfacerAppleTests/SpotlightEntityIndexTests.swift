@@ -35,6 +35,44 @@ func onscreenAnnotationsUseTheExistingSpotlightEntityIdentity() {
 }
 
 @Test
+func liveContextOnscreenAnnotationUsesTheExpiringAggregateIdentity() throws {
+    let entity = KnowledgeEntity(
+        id: EntityID(rawValue: "visible-note"),
+        kind: .note,
+        title: "Visible note",
+        source: SourceAnchor(fileURL: URL(fileURLWithPath: "/tmp/Visible.md"))
+    )
+    let context = CurrentContext(
+        resolved: [
+            ResolvedContextItem(
+                entity: entity,
+                signals: [
+                    ContextSignal(
+                        providerID: "org.gnu.Emacs",
+                        relevance: .visible,
+                        observedAt: .now,
+                        expiresAt: .distantFuture
+                    )
+                ],
+                score: 100
+            )
+        ],
+        unresolved: []
+    )
+    let projection = try #require(SpotlightLiveContextEntity(context))
+
+    #expect(
+        BrainSurfacerAppEntityAnnotations.identifier(for: context)
+            == EntityIdentifier(for: projection)
+    )
+    #expect(
+        BrainSurfacerAppEntityAnnotations.identifier(
+            for: CurrentContext(resolved: [], unresolved: [])
+        ) == nil
+    )
+}
+
+@Test
 func oversizedCanonicalIdentifierProjectsToBoundedStableSpotlightIdentifier() {
     let canonicalID = EntityID(rawValue: "outline:" + String(repeating: "knowledge", count: 1_000))
     let entity = KnowledgeEntity(

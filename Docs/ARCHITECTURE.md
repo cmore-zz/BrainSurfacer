@@ -109,12 +109,27 @@ It maps `.bb.txt` to the BBCode adapter. Ordinary `.txt` files and editor backup
 names such as `.md.txt#` therefore stay out of scope. Registration order
 resolves equal-length suffix conflicts: the first registration wins.
 An enrollment may explicitly map additional validated suffixes to one of these
-built-in formats. Longest suffix still wins across built-ins and overrides; an
+built-in formats or to automatic content detection. Longest suffix still wins
+across built-ins and overrides; an
 override wins an equal-length tie, so `.txt` does not shadow the more specific
-built-in `.md.txt` unless that exact suffix is overridden. Overrides contain no
-executable code, accept no path separators or glob characters, and remain local
-to their source. Adding, changing, or removing one uses ordinary reconciliation
-to add, reparse, or revoke affected entities.
+built-in `.md.txt` unless that exact suffix is overridden; mapping `.md` itself
+therefore intentionally replaces its built-in parser for that source. Overrides
+contain no executable code, accept no path separators or glob characters, and
+remain local to their source. Adding, changing, or removing one uses ordinary
+reconciliation to add, reparse, or revoke affected entities.
+
+Automatic detection is opt-in per exact suffix and requires both a minimum
+evidence score and a clear lead over the runner-up format. Repeated ATX headings,
+front matter, fenced code, and Markdown links contribute Markdown evidence;
+Org keywords, drawers, source blocks, scheduling, links, and outline structure
+contribute Org evidence; paired BBCode tags and standalone `[b]…[/b]` lines
+contribute BBCode evidence. Weak generic syntax such as a lone heading or a
+bullet list does not qualify. Detection reads at most the first 128 KiB; a
+low-confidence or ambiguous candidate is fingerprinted as skipped without
+reading the rest of the file, while a confident candidate proceeds through the
+selected built-in parser. The automatic adapter's revision incorporates both
+the detector and its underlying parser revisions, forcing the appropriate
+reparse when either behavior changes.
 Registrations carry a stable parser identifier, format, suffix aliases, and
 parser output revision; scanners depend on the registry rather than branching
 on extensions. This keeps format expansion behind a narrow parser protocol
@@ -171,7 +186,8 @@ mutation:
 1. load that root's persisted per-file resource fingerprints and exact catalog
    membership;
 2. parse files whose modification date or size changed and reuse catalog
-   entities for unchanged files;
+   entities—or a previous low-confidence format-detection skip—for unchanged
+   files;
 3. retain last-known-good entities and the older fingerprint when a file cannot
    be read or parsed, so the file is retried;
 4. remove a file's entities only when a complete enumeration confirms that the
@@ -385,8 +401,11 @@ The SDK also adds `RelevantEntities`, but its public context surface is currentl
 domain-specific rather than a general “current working set” mechanism. The
 architecture therefore does not equate live editor context with
 `RelevantEntities`. BrainSurfacer annotates rows in its own Live Context UI with
-the existing Spotlight App Entity identity, using the SDK's onscreen entity
-annotation APIs. It cannot annotate UI owned by Emacs or Obsidian. Working
+the existing Spotlight App Entity identity and annotates the containing view
+with the identifier of the expiring aggregate, using the SDK's onscreen entity
+annotation APIs. The aggregate identifier is resolved through the same query
+that enforces TTL and Apple-discovery scope. BrainSurfacer cannot annotate UI
+owned by Emacs or Obsidian. Working
 context feeds in-app ranking and an explicit background App Intent that returns
 up to twenty transient current-document entities. Each result carries a bounded
 content excerpt, source URL, relevance, provider provenance, and open URL.

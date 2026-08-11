@@ -29,6 +29,8 @@ struct BrainSurfacerAppShortcuts: AppShortcutsProvider {
                 "What's open in \(.applicationName)",
                 "What files are open in \(.applicationName)",
                 "Which files are open in \(.applicationName)",
+                "What documents are open in \(.applicationName)",
+                "Which documents are open in \(.applicationName)",
                 "Get my current \(.applicationName) context",
                 "What am I working on in \(.applicationName)",
                 "Show my current \(.applicationName) context"

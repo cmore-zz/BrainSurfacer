@@ -137,3 +137,40 @@ entity summary and `textContent` from its bounded body.
   snapshot, `linkd` accepted the installed app and interpolated its shortcuts,
   and the app attempted the bounded donation. Keep both outcomes as beta
   diagnostics rather than treating either one as a reliable contract.
+
+## 2026-08-10 — Xcode 27.0 beta 5 (27A5237l), macOS 27 beta 5 (26A5406e)
+
+### App Intents and onscreen routing
+
+- The current SDK retains `@AppIntent(schema: .system.searchInApp)`,
+  `@AppEntity(schema:)`, `IndexedEntityQuery`, `TransientAppEntity`, and the
+  SwiftUI `appEntityIdentifier(_:)` modifier with the contracts BrainSurfacer
+  already uses. Extracted app metadata still identifies the search action as
+  `SystemSearchInAppIntent`, the durable note as Notes `NoteEntity`, and the
+  live aggregate as an indexed entity with its stable default query.
+- The beta 5 interface no longer advertises a Notes `tag` schema. Keeping tags
+  as custom relationship entities owned by the Notes-schema projection remains
+  the compatible representation.
+- During one beta 5 Siri request, BrainSurfacer had a nonempty live aggregate
+  and `suggestd` received it, but Siri invoked neither the current-context intent
+  nor an App Entity query. `intelligencecontextd` instead requested an onscreen
+  UI fragment and Siri answered that no documents were open. This demonstrates
+  another runtime routing path rather than an App Intent conformance failure.
+- A controlled follow-up using the distinctive App Shortcut phrase “Get my
+  current BrainSurfacer context” did route correctly. Unified logging showed
+  the durable-note and expiring-aggregate queries each resolving the expected
+  single item, followed by `GetCurrentBrainSurfacerContextIntent` returning one
+  item. Siri displayed that selected Markdown document with its filename and
+  relevance label, matching the Live Context view.
+- The successful direct invocation and the failed generic “what documents are
+  open” request used the same nonempty editor snapshot. This isolates the beta
+  5 problem to Siri's phrase-routing choice: generic wording can be captured by
+  the onscreen-awareness/current-app path without invoking BrainSurfacer. The
+  distinctive shortcut phrase is a verified probe on this seed, while generic
+  natural-language routing remains unstable.
+- BrainSurfacer therefore annotates the complete Live Context view with the
+  expiring aggregate identifier in addition to annotating each resolved row.
+  It also declares explicit “what/which documents are open” shortcut phrases.
+- Unified logging records invocation and result counts for the current-context
+  intent, the expiring aggregate query, and the durable-note query. Paths,
+  titles, excerpts, and other note contents are deliberately not logged.
