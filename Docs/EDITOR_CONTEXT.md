@@ -172,6 +172,21 @@ that limit is reached. These controls primarily bound malformed or noisy
 connectors; the design does not claim to contain hostile code already executing
 as the logged-in user.
 
+## Siri access
+
+On the tested macOS 27 beta 5 seed, “Get my current BrainSurfacer context” is
+the verified Siri phrase for invoking the app's current-context shortcut. It
+returns the same unexpired, Apple-discoverable selected, visible, and open
+documents shown in Live Context, including their relevance labels. The action
+can also be run directly from Shortcuts.
+
+Generic requests such as “what documents are open in BrainSurfacer?” may
+instead be claimed by the seed's onscreen-awareness/current-app route and fail
+without invoking BrainSurfacer, particularly while another app is in focus.
+This is observed beta routing behavior rather than evidence that the connector
+snapshot is empty. The distinctive shortcut phrase and the Shortcuts action are
+the deterministic diagnostics while that system routing remains unstable.
+
 ## Apple API boundary
 
 BrainSurfacer annotates the entity rows in its own Live Context view with the

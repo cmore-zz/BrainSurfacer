@@ -156,6 +156,18 @@ entity summary and `textContent` from its bounded body.
   nor an App Entity query. `intelligencecontextd` instead requested an onscreen
   UI fragment and Siri answered that no documents were open. This demonstrates
   another runtime routing path rather than an App Intent conformance failure.
+- A controlled follow-up using the distinctive App Shortcut phrase “Get my
+  current BrainSurfacer context” did route correctly. Unified logging showed
+  the durable-note and expiring-aggregate queries each resolving the expected
+  single item, followed by `GetCurrentBrainSurfacerContextIntent` returning one
+  item. Siri displayed that selected Markdown document with its filename and
+  relevance label, matching the Live Context view.
+- The successful direct invocation and the failed generic “what documents are
+  open” request used the same nonempty editor snapshot. This isolates the beta
+  5 problem to Siri's phrase-routing choice: generic wording can be captured by
+  the onscreen-awareness/current-app path without invoking BrainSurfacer. The
+  distinctive shortcut phrase is a verified probe on this seed, while generic
+  natural-language routing remains unstable.
 - BrainSurfacer therefore annotates the complete Live Context view with the
   expiring aggregate identifier in addition to annotating each resolved row.
   It also declares explicit “what/which documents are open” shortcut phrases.
